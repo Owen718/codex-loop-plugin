@@ -11,38 +11,45 @@ Codex Loop is a plugin-shaped implementation of recurring prompt scheduling for 
 
 ## Quick Start
 
-This repository includes a marketplace file at `.agents/plugins/marketplace.json` that exposes `./plugins/codex-loop`.
+Most users do not need to clone this repository.
 
-`codex plugin marketplace add ...` registers the marketplace source only. After that, restart Codex and install/enable `Codex Loop` from the plugin directory UI. That is what loads `$loop` and the MCP tools into Codex.
-
-Create a loop task:
+Add the marketplace:
 
 ```bash
-plugins/codex-loop/scripts/codex-loop create 5m "check deploy status"
+codex plugin marketplace add Owen718/codex-loop-plugin
 ```
 
-Run the scheduler:
+Restart Codex, then install or enable:
+
+```text
+Marketplace/source: Codex Loop Plugin
+Plugin: Codex Loop
+Action: Install or Enable
+```
+
+Start the scheduler in another terminal:
 
 ```bash
-plugins/codex-loop/scripts/codex-loopd --runner exec
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
+```
+
+Create a loop task inside Codex:
+
+```text
+$loop 5m check deploy status
 ```
 
 List or cancel tasks:
 
-```bash
-plugins/codex-loop/scripts/codex-loop list
-plugins/codex-loop/scripts/codex-loop cancel <job_id>
+```text
+$loop list
+$loop cancel <job_id>
 ```
 
 ## Codex Entrypoints
 
-Copy `prompts/loop.md` to `~/.codex/prompts/loop.md` if you want:
-
-```text
-/prompts:loop 5m check deploy
-```
-
-When this plugin is installed, use:
+The plugin gives you `$loop` after it is installed and enabled:
 
 ```text
 $loop 5m check deploy
@@ -50,18 +57,34 @@ $loop list
 $loop cancel <job_id>
 ```
 
+If you also want `/prompts:loop`, copy the prompt template from the installed plugin:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+mkdir -p ~/.codex/prompts
+cp "$LOOP_PLUGIN/prompts/loop.md" ~/.codex/prompts/loop.md
+```
+
+Then use:
+
+```text
+/prompts:loop 5m check deploy
+```
+
 ## Runners
 
 `exec` is the simplest and most stable runner. It starts non-interactive Codex turns:
 
 ```bash
-plugins/codex-loop/scripts/codex-loopd --runner exec
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
 ```
 
 `codex-mcp` drives `codex mcp-server` and uses `codex` / `codex-reply` when exposed:
 
 ```bash
-plugins/codex-loop/scripts/codex-loopd --runner codex-mcp
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner codex-mcp
 ```
 
 `app-server` is closest to a true interactive scheduled thread. Start Codex app-server and remote TUI first:
@@ -70,7 +93,8 @@ plugins/codex-loop/scripts/codex-loopd --runner codex-mcp
 codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
 export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
 codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
-plugins/codex-loop/scripts/codex-loopd --runner app-server --app-server ws://127.0.0.1:4500
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner app-server --app-server ws://127.0.0.1:4500
 ```
 
 The app-server runner needs Python's optional `websockets` package.

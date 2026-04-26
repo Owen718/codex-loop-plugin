@@ -64,22 +64,17 @@ plugins/codex-loop/                   Plugin package
   tests/                              Unit tests
 ```
 
-## Installation
+## Quick Start
 
-There are two separate steps:
+Most users do not need to clone this repository.
 
-1. Add this repository as a **plugin marketplace**. A marketplace is just a catalog that tells Codex where the plugin lives.
-2. Restart Codex, open the plugin directory UI, and install/enable **Codex Loop** from that marketplace. That second step is what actually loads the skill and MCP server into Codex.
-
-### Install from GitHub
-
-Register this repository as a marketplace source:
+Add this repository as a Codex plugin marketplace:
 
 ```bash
 codex plugin marketplace add Owen718/codex-loop-plugin
 ```
 
-Then restart Codex. In the plugin directory UI:
+Restart Codex. In the plugin directory UI, install or enable the plugin:
 
 ```text
 Marketplace/source: Codex Loop Plugin
@@ -87,58 +82,60 @@ Plugin: Codex Loop
 Action: Install or Enable
 ```
 
-After that, `$loop` and the `codex_loop` MCP tools are available inside Codex.
-
-### Local development install
-
-Clone the repository:
+Start the scheduler in another terminal:
 
 ```bash
-git clone git@github.com:Owen718/codex-loop-plugin.git
-cd codex-loop-plugin
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
 ```
 
-Add the local marketplace:
+Then use Codex normally:
+
+```text
+$loop 5m check git status and summarize
+$loop list
+$loop cancel <job_id>
+```
+
+What each step means:
+
+- `marketplace add` registers this GitHub repository as a plugin source.
+- Installing/enabling `Codex Loop` loads the `$loop` skill and `codex_loop` MCP tools into Codex.
+- `codex-loopd` is the timer process. Loops only fire while it is running.
+
+## Installation Details
+
+### 1. Add The Marketplace
 
 ```bash
-codex plugin marketplace add "$PWD"
+codex plugin marketplace add Owen718/codex-loop-plugin
 ```
 
-Then restart Codex and install/enable `Codex Loop` from the local marketplace.
+### 2. Install The Plugin In Codex
 
-### CLI-only practice without installing the plugin
+Restart Codex, open the plugin directory UI, select `Codex Loop Plugin`, then install or enable `Codex Loop`.
 
-If you only want to test the scheduler and state machine first, you can run the bundled CLI directly:
+After this, `$loop` is available inside Codex.
+
+### 3. Start The Scheduler
+
+Codex installs the plugin into `~/.codex/plugins/cache/...`. Use the installed copy to start the daemon:
 
 ```bash
-git clone git@github.com:Owen718/codex-loop-plugin.git
-cd codex-loop-plugin
-
-plugins/codex-loop/scripts/codex-loop create 1m "check git status and summarize"
-plugins/codex-loop/scripts/codex-loop list
-plugins/codex-loop/scripts/codex-loopd --runner exec
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
 ```
 
-This does not load `$loop` into Codex. It only uses the standalone CLI and daemon.
-
-For a no-token smoke test, use `dry-run`:
-
-```bash
-tmpdb="$(mktemp /tmp/codex-loop.XXXXXX.sqlite3)"
-plugins/codex-loop/scripts/codex-loop --db "$tmpdb" create 1m smoke --thread-id smoke --cwd "$PWD"
-sleep 65
-plugins/codex-loop/scripts/codex-loopd --db "$tmpdb" --runner dry-run --once
-plugins/codex-loop/scripts/codex-loop --db "$tmpdb" list --thread-id smoke
-rm -f "$tmpdb"
-```
+Keep that process running in another terminal, tmux pane, or service manager.
 
 ### Optional: enable `/prompts:loop`
 
-The plugin skill gives you `$loop`. If you also want `/prompts:loop`, copy the prompt template:
+The plugin skill gives you `$loop`. If you also want `/prompts:loop`, copy the prompt template from the installed plugin:
 
 ```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
 mkdir -p ~/.codex/prompts
-cp plugins/codex-loop/prompts/loop.md ~/.codex/prompts/loop.md
+cp "$LOOP_PLUGIN/prompts/loop.md" ~/.codex/prompts/loop.md
 ```
 
 Then use:
@@ -154,7 +151,8 @@ The plugin creates and manages loop tasks, but scheduled tasks only run while `c
 The simplest runner is `exec`:
 
 ```bash
-plugins/codex-loop/scripts/codex-loopd --runner exec
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
 ```
 
 This uses `codex exec` for each due task. It is stable and easy to operate, but it behaves like background automation rather than a live TUI session.
@@ -179,7 +177,8 @@ codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
 Then start the daemon:
 
 ```bash
-plugins/codex-loop/scripts/codex-loopd \
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" \
   --runner app-server \
   --app-server ws://127.0.0.1:4500
 ```
@@ -223,9 +222,10 @@ $loop cancel a1b2c3d4
 You can also use the CLI directly:
 
 ```bash
-plugins/codex-loop/scripts/codex-loop create 5m "check deploy"
-plugins/codex-loop/scripts/codex-loop list
-plugins/codex-loop/scripts/codex-loop cancel a1b2c3d4
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" create 5m "check deploy"
+"$LOOP_PLUGIN/scripts/codex-loop" list
+"$LOOP_PLUGIN/scripts/codex-loop" cancel a1b2c3d4
 ```
 
 ## Loop Semantics
@@ -279,6 +279,13 @@ The plugin exposes these MCP tools:
 | `loop_read_default_prompt` | Resolve the maintenance prompt |
 
 ## Development
+
+Clone the repository only if you want to hack on the plugin:
+
+```bash
+git clone git@github.com:Owen718/codex-loop-plugin.git
+cd codex-loop-plugin
+```
 
 Run tests:
 
