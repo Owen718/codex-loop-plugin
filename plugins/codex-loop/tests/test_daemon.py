@@ -70,6 +70,20 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(status.pid, 6789)
         self.assertIn("stale", status.reason)
 
+    def test_daemon_status_uses_env_pid_and_log_paths(self) -> None:
+        pid_path = self.root / "env-loopd.pid"
+        log_path = self.root / "env-loopd.log"
+        with mock.patch.dict(
+            "os.environ",
+            {"CODEX_LOOPD_PID_PATH": str(pid_path), "CODEX_LOOPD_LOG_PATH": str(log_path)},
+            clear=False,
+        ):
+            status = daemon_status()
+
+        self.assertFalse(status.running)
+        self.assertEqual(status.pid_path, str(pid_path))
+        self.assertEqual(status.log_path, str(log_path))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,9 +5,9 @@ Codex Loop is a plugin-shaped implementation of recurring prompt scheduling for 
 - `skills/loop`: user-facing `$loop` and `/prompts:loop` semantics
 - MCP server: durable task CRUD and iteration completion tools
 - SQLite store: task state, leases, expiry, no-catch-up scheduling
-- `codex-loopd`: scheduler daemon, autostarted by `$loop` task creation
+- `codex-loopd`: scheduler daemon, autostarted by `$loop` task creation when a runnable app-server is configured
 - runners: `app-server`, `codex-mcp`, `exec`, and `dry-run`
-- Stop hook fallback: immediate continuation for already-due jobs
+- PostToolUse hook binding plus Stop hook fallback: bind tasks to the current session when Codex exposes a hook `session_id`, and continue already-due jobs without opening a new session
 
 ## Quick Start
 
@@ -66,7 +66,27 @@ Then use:
 
 ## Runners
 
-By default, `$loop` starts `codex-loopd` automatically with the `codex-mcp` runner and writes `~/.codex-loop/loopd.pid` plus `~/.codex-loop/loopd.log`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable that behavior.
+By default, new tasks use `visibility_policy=visible_only` and `runner=app-server`. This is intentionally conservative: if Codex Loop cannot bind the task to a concrete Codex session/thread id, or if no app-server runtime is configured, the task pauses instead of starting a hidden new Codex session.
+
+Start Codex through the bundled launcher when you want Claude Code style visible scheduled turns:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+```
+
+The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution.
+
+You can also wire the runtime manually:
+
+```bash
+codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
+export CODEX_LOOP_APP_SERVER=ws://127.0.0.1:4500
+export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
+codex --remote "$CODEX_LOOP_APP_SERVER" --remote-auth-token-env CODEX_WS_TOKEN
+```
+
+When `CODEX_LOOP_APP_SERVER` is set, `$loop` autostarts `codex-loopd` with the `app-server` runner and writes `~/.codex-loop/loopd.pid` plus `~/.codex-loop/loopd.log`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable autostart.
 
 `exec` is the simplest and most stable runner. It starts non-interactive Codex turns:
 
@@ -82,7 +102,9 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loopd" --runner codex-mcp
 ```
 
-`app-server` is closest to a true interactive scheduled thread. Start Codex app-server and remote TUI first:
+Use `codex-mcp` or `exec` only for tasks created with `visibility_policy=thread_only` or `visibility_policy=background_ok`. `visible_only` tasks refuse these runners because they cannot guarantee that the current TUI session will see the scheduled turn.
+
+`app-server` is the current visible-session runner. Start Codex app-server and remote TUI first:
 
 ```bash
 codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
@@ -104,4 +126,4 @@ Bare loops resolve the maintenance prompt in this order:
 
 ## Safety
 
-Tasks snapshot cwd, approval policy, sandbox, and model. Later iterations do not auto-upgrade them. Tasks expire after seven days, use deterministic jitter for fixed intervals, do not catch up missed ticks, and pause after repeated runner failures.
+Tasks snapshot cwd, approval policy, sandbox, and model. Later iterations do not auto-upgrade them. Tasks expire after seven days, use deterministic jitter for fixed intervals, do not catch up missed ticks, and pause after repeated runner failures. Every acquired iteration gets a durable `run_id`; `loop_complete_iteration` is idempotent for that run so model-side completion and scheduler fallback cannot double-increment `run_count`.

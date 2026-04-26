@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__codex_loop__loop_create$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/stop_loop_fallback.py --bind-created-task",
+            "timeout": 5,
+            "statusMessage": "Binding Codex Loop task to current session"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

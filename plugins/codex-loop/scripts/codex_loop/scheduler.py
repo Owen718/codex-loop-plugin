@@ -10,13 +10,15 @@ from typing import Protocol
 
 from .app_server import AppServerRunner
 from .models import LoopTask, RunResult
-from .store import LoopStore
+from .store import LoopStore, has_concrete_thread_id
 
 
 def build_iteration_prompt(task: LoopTask) -> str:
+    run_id = task.current_run_id or "<unknown>"
     complete_instruction = (
         "When finished, call the MCP tool loop_complete_iteration with:\n"
         f"- job_id: {task.id}\n"
+        f"- run_id: {run_id}\n"
         "- status: continue | pause | done | failed\n"
         "- summary: short result\n"
         "- next_delay_seconds: required for dynamic loops, choose 60..3600\n"
@@ -26,18 +28,23 @@ def build_iteration_prompt(task: LoopTask) -> str:
         complete_instruction = (
             "When finished, call the MCP tool loop_complete_iteration with:\n"
             f"- job_id: {task.id}\n"
+            f"- run_id: {run_id}\n"
             "- status: continue | pause | done | failed\n"
             "- summary: short result\n"
             "- next_delay_reason: short reason; next_delay_seconds is optional for fixed loops\n"
         )
 
     return f"""[Codex Loop Job: {task.id}]
+[Codex Loop Run: {run_id}]
 
 Run this scheduled loop iteration.
 
 Loop metadata:
 - schedule_kind: {task.schedule_kind}
 - fixed_interval_seconds: {task.fixed_interval_seconds}
+- visibility_policy: {task.visibility_policy}
+- binding_status: {task.binding_status}
+- runner: {task.runner}
 - run_count_before_this_iteration: {task.run_count}
 - expires_at: {task.expires_at}
 - no_catch_up: true
@@ -56,12 +63,16 @@ Rules:
 
 
 class Runner(Protocol):
+    kind: str
+
     def run(self, task: LoopTask, prompt: str) -> RunResult:
         ...
 
 
 @dataclass
 class DryRunRunner:
+    kind: str = "dry-run"
+
     def run(self, task: LoopTask, prompt: str) -> RunResult:
         return RunResult(status="completed", summary=f"dry run for {task.id}", output=prompt)
 
@@ -70,6 +81,7 @@ class DryRunRunner:
 class ExecRunner:
     codex_bin: str = "codex"
     timeout_seconds: int = 60 * 60
+    kind: str = "exec"
 
     def run(self, task: LoopTask, prompt: str) -> RunResult:
         cmd = [
@@ -101,6 +113,8 @@ class ExecRunner:
 
 
 class CodexMcpRunner:
+    kind = "codex-mcp"
+
     def __init__(self, codex_bin: str = "codex", timeout_seconds: int = 60 * 60):
         from .stdio_mcp_client import StdioMcpClient
 
@@ -113,12 +127,12 @@ class CodexMcpRunner:
 
     def run(self, task: LoopTask, prompt: str) -> RunResult:
         tools = {tool["name"] for tool in self.client.list_tools()}
-        if task.thread_id and task.thread_id != "current" and "codex-reply" in tools:
+        if has_concrete_thread_id(task.thread_id) and "codex-reply" in tools:
             result = self.client.call_tool(
                 "codex-reply",
                 {"threadId": task.thread_id, "prompt": prompt, "cwd": task.cwd},
             )
-        elif "codex" in tools:
+        elif task.visibility_policy == "background_ok" and "codex" in tools:
             result = self.client.call_tool(
                 "codex",
                 {
@@ -130,7 +144,10 @@ class CodexMcpRunner:
                 },
             )
         else:
-            return RunResult(status="failed", summary="Codex MCP server does not expose codex/codex-reply tools")
+            return RunResult(
+                status="failed",
+                summary="Codex MCP cannot safely continue this loop without a concrete thread id",
+            )
 
         text = json.dumps(result, ensure_ascii=False)
         thread_id = _find_thread_id(result)
@@ -177,24 +194,49 @@ def make_runner(args: argparse.Namespace) -> Runner:
     raise SystemExit(f"unknown runner: {args.runner}")
 
 
+def _preflight_block_reason(task: LoopTask, runner_kind: str) -> str | None:
+    if task.runner != runner_kind:
+        return f"Loop task requires runner {task.runner}; active daemon runner is {runner_kind}."
+    if task.visibility_policy in {"visible_only", "thread_only"} and not has_concrete_thread_id(task.thread_id):
+        return "Loop task is not bound to a concrete Codex session id; refusing to start a new session."
+    if task.visibility_policy == "visible_only" and runner_kind != "app-server":
+        return "visible_only loop tasks require an app-server based runner attached to the current TUI runtime."
+    if task.visibility_policy == "thread_only" and runner_kind not in {"app-server", "codex-mcp"}:
+        return "thread_only loop tasks require a runner that can continue the existing Codex thread."
+    return None
+
+
 def run_once(store: LoopStore, runner: Runner, *, limit: int = 10) -> int:
     store.expire_due_tasks()
     tasks = store.acquire_due_tasks(limit=limit)
+    runner_kind = getattr(runner, "kind", type(runner).__name__)
     for task in tasks:
+        block_reason = _preflight_block_reason(task, runner_kind)
+        if block_reason:
+            store.abort_current_run(task.id, status="paused", summary=block_reason)
+            continue
         prompt = build_iteration_prompt(task)
         try:
             result = runner.run(task, prompt)
         except Exception as exc:
-            store.complete_iteration(task.id, status="failed", summary=f"runner exception: {exc}")
+            store.complete_iteration(
+                task.id,
+                run_id=task.current_run_id,
+                status="failed",
+                summary=f"runner exception: {exc}",
+                completion_source="scheduler_exception",
+            )
             continue
-        if result.thread_id and task.thread_id == "current":
+        if result.thread_id and task.thread_id == "current" and task.visibility_policy == "background_ok":
             store.replace_task_thread_id(task.id, result.thread_id)
         status = "continue" if result.status == "completed" else "failed"
         store.complete_iteration(
             task.id,
+            run_id=task.current_run_id,
             status=status,
             summary=result.summary,
             thread_id=result.thread_id,
+            completion_source="scheduler_fallback",
             next_delay_reason="runner completed without explicit loop_complete_iteration"
             if result.status == "completed"
             else "runner failed",

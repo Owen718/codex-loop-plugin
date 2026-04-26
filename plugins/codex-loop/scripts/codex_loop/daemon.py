@@ -65,9 +65,17 @@ def _read_pid(pid_path: Path) -> int | None:
         return None
 
 
+def default_pid_path() -> Path:
+    return Path(os.environ.get("CODEX_LOOPD_PID_PATH", DEFAULT_PID_PATH)).expanduser()
+
+
+def default_log_path() -> Path:
+    return Path(os.environ.get("CODEX_LOOPD_LOG_PATH", DEFAULT_LOG_PATH)).expanduser()
+
+
 def daemon_status(*, pid_path: str | Path | None = None, log_path: str | Path | None = None) -> DaemonStatus:
-    resolved_pid_path = Path(pid_path or DEFAULT_PID_PATH).expanduser()
-    resolved_log_path = Path(log_path or DEFAULT_LOG_PATH).expanduser()
+    resolved_pid_path = Path(pid_path).expanduser() if pid_path is not None else default_pid_path()
+    resolved_log_path = Path(log_path).expanduser() if log_path is not None else default_log_path()
     pid = _read_pid(resolved_pid_path)
     if pid is None:
         reason = "no pid file" if not resolved_pid_path.exists() else "invalid pid file"
@@ -100,10 +108,12 @@ def ensure_daemon_running(
     pid_path: str | Path | None = None,
     log_path: str | Path | None = None,
     runner: str = "codex-mcp",
+    app_server: str | None = None,
+    app_server_token_env: str | None = None,
     codex_bin: str | None = None,
 ) -> DaemonStatus:
-    resolved_pid_path = Path(pid_path or DEFAULT_PID_PATH).expanduser()
-    resolved_log_path = Path(log_path or DEFAULT_LOG_PATH).expanduser()
+    resolved_pid_path = Path(pid_path).expanduser() if pid_path is not None else default_pid_path()
+    resolved_log_path = Path(log_path).expanduser() if log_path is not None else default_log_path()
 
     if not autostart_enabled():
         status = daemon_status(pid_path=resolved_pid_path, log_path=resolved_log_path)
@@ -127,6 +137,10 @@ def ensure_daemon_running(
         "--codex-bin",
         codex_bin or os.environ.get("CODEX_LOOP_CODEX_BIN", "codex"),
     ]
+    if app_server:
+        command.extend(["--app-server", app_server])
+    if app_server_token_env:
+        command.extend(["--app-server-token-env", app_server_token_env])
     env = os.environ.copy()
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     with resolved_log_path.open("a", encoding="utf-8") as log_file:

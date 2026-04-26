@@ -18,6 +18,7 @@ class AppServerRunner:
     url: str
     token: str | None = None
     turn_timeout_seconds: int = 60 * 60
+    kind: str = "app-server"
 
     def run(self, task: LoopTask, prompt: str) -> RunResult:
         return asyncio.run(self._run_async(task, prompt))
@@ -60,7 +61,7 @@ class AppServerRunner:
                     },
                 )
                 thread_id = resume.get("thread", {}).get("id", task.thread_id)
-            else:
+            elif task.visibility_policy == "background_ok":
                 started = await rpc.call(
                     "thread/start",
                     {
@@ -73,6 +74,8 @@ class AppServerRunner:
                 thread_id = started.get("thread", {}).get("id")
                 if not thread_id:
                     raise AppServerError("thread/start response did not include thread.id")
+            else:
+                raise AppServerError("visible/thread-only loop is not bound to a concrete app-server thread")
 
             turn = await rpc.call(
                 "turn/start",

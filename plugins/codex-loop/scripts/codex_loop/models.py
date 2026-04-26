@@ -7,6 +7,9 @@ from typing import Any, Literal
 
 ScheduleKind = Literal["fixed", "dynamic"]
 PromptKind = Literal["explicit", "default", "command"]
+BindingStatus = Literal["pending", "bound", "lost", "unbound"]
+VisibilityPolicy = Literal["visible_only", "thread_only", "background_ok"]
+RunnerKind = Literal["app-server", "codex-mcp", "exec", "dry-run"]
 TaskStatus = Literal[
     "active",
     "running",
@@ -17,6 +20,7 @@ TaskStatus = Literal[
     "done",
 ]
 CompletionStatus = Literal["continue", "pause", "done", "failed"]
+RunStatus = Literal["running", "completed", "failed", "cancelled", "ignored"]
 
 
 def utcnow() -> datetime:
@@ -54,6 +58,10 @@ class ParsedLoop:
 class LoopTask:
     id: str
     thread_id: str
+    binding_status: BindingStatus
+    visibility_policy: VisibilityPolicy
+    runner: RunnerKind
+    current_run_id: str | None
     cwd: str
     raw_user_input: str
     prompt: str
@@ -92,3 +100,20 @@ class RunResult:
     summary: str
     thread_id: str | None = None
     output: str | None = None
+
+
+@dataclass(frozen=True)
+class LoopRun:
+    run_id: str
+    task_id: str
+    status: RunStatus
+    started_at: str
+    completed_at: str | None
+    completion_source: str | None
+    summary: str | None
+    next_delay_seconds: int | None
+    next_delay_reason: str | None
+    failure_reason: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)

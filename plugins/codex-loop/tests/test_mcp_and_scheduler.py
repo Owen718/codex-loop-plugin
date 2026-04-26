@@ -60,12 +60,17 @@ class McpAndSchedulerTests(unittest.TestCase):
                 "pid": 123,
                 "reason": "started",
             }
-            created = self._call("loop_create", {"raw_user_input": "5m check deploy", "cwd": self.tmp.name})
+            created = self._call(
+                "loop_create",
+                {"raw_user_input": "5m check deploy", "cwd": self.tmp.name, "app_server": "ws://127.0.0.1:4500"},
+            )
 
         self.assertEqual(created["created"]["thread_id"], "thread-real")
         self.assertEqual(created["daemon"]["started"], True)
         self.ensure_daemon.assert_called_once()
         self.assertEqual(Path(self.ensure_daemon.call_args.kwargs["db_path"]), self.store.path)
+        self.assertEqual(self.ensure_daemon.call_args.kwargs["runner"], "app-server")
+        self.assertEqual(self.ensure_daemon.call_args.kwargs["app_server"], "ws://127.0.0.1:4500")
 
     def test_mcp_create_warns_without_concrete_thread_id(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -79,6 +84,7 @@ class McpAndSchedulerTests(unittest.TestCase):
         response = self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         names = {tool["name"] for tool in response["result"]["tools"]}
         self.assertIn("loop_create", names)
+        self.assertIn("loop_bind_session", names)
         self.assertIn("loop_complete_iteration", names)
 
     def test_build_iteration_prompt_contains_completion_contract(self) -> None:
@@ -90,13 +96,33 @@ class McpAndSchedulerTests(unittest.TestCase):
 
     def test_run_once_processes_due_task(self) -> None:
         old = utcnow() - timedelta(minutes=2)
-        task = self.store.create_task(parse_loop_args("1m do work"), thread_id="t1", cwd=self.tmp.name, now=old)
+        task = self.store.create_task(
+            parse_loop_args("1m do work"),
+            thread_id="t1",
+            cwd=self.tmp.name,
+            visibility_policy="background_ok",
+            runner="dry-run",
+            now=old,
+        )
         count = run_once(self.store, DryRunRunner())
         self.assertEqual(count, 1)
         updated = self.store.get_task(task.id)
         self.assertEqual(updated.status, "active")
         self.assertEqual(updated.run_count, 1)
         self.assertEqual(updated.last_result_summary, f"dry run for {task.id}")
+
+    def test_run_once_pauses_visible_task_without_current_session_runner(self) -> None:
+        old = utcnow() - timedelta(minutes=2)
+        task = self.store.create_task(parse_loop_args("1m do work"), cwd=self.tmp.name, now=old)
+
+        count = run_once(self.store, DryRunRunner())
+
+        self.assertEqual(count, 1)
+        updated = self.store.get_task(task.id)
+        self.assertEqual(updated.status, "paused")
+        self.assertEqual(updated.run_count, 0)
+        self.assertIn("Loop task requires runner app-server", updated.last_result_summary)
+        self.assertIsNone(updated.current_run_id)
 
     def test_codex_mcp_runner_replies_to_known_thread_id(self) -> None:
         class FakeClient:

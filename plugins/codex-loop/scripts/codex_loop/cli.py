@@ -10,6 +10,7 @@ from .prompts import resolve_default_prompt
 from .scheduler import build_arg_parser as build_loopd_parser
 from .scheduler import main as loopd_main
 from .store import LoopStore, summarize_tasks
+from .tui import add_tui_parser
 
 
 def _print_json(value: Any) -> None:
@@ -28,6 +29,8 @@ def cmd_create(args: argparse.Namespace) -> int:
         sandbox=args.sandbox,
         model=args.model,
         max_runs=args.max_runs,
+        visibility_policy=args.visibility_policy,
+        runner=args.runner,
     )
     _print_json(task.to_dict())
     return 0
@@ -57,14 +60,22 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bind(args: argparse.Namespace) -> int:
+    task = LoopStore(args.db).bind_task_thread(args.job_id, args.thread_id, resume=not args.no_resume)
+    _print_json(task.to_dict())
+    return 0
+
+
 def cmd_complete(args: argparse.Namespace) -> int:
     task = LoopStore(args.db).complete_iteration(
         args.job_id,
+        run_id=args.run_id,
         status=args.status,
         summary=args.summary or "",
         next_delay_seconds=args.next_delay_seconds,
         next_delay_reason=args.next_delay_reason,
         thread_id=args.thread_id,
+        completion_source="cli",
     )
     _print_json(task.to_dict())
     return 0
@@ -89,6 +100,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     create.add_argument("--sandbox", default=None)
     create.add_argument("--model", default=None)
     create.add_argument("--max-runs", type=int, default=None)
+    create.add_argument("--visibility-policy", choices=["visible_only", "thread_only", "background_ok"], default=None)
+    create.add_argument("--runner", choices=["app-server", "codex-mcp", "exec", "dry-run"], default=None)
     create.set_defaults(func=cmd_create)
 
     list_cmd = sub.add_parser("list", help="List loop tasks.")
@@ -108,8 +121,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     resume.add_argument("job_id")
     resume.set_defaults(func=cmd_update, status="active")
 
+    bind = sub.add_parser("bind", help="Bind a task to a concrete Codex session/thread id.")
+    bind.add_argument("job_id")
+    bind.add_argument("thread_id")
+    bind.add_argument("--no-resume", action="store_true")
+    bind.set_defaults(func=cmd_bind)
+
     complete = sub.add_parser("complete", help="Complete a loop iteration.")
     complete.add_argument("job_id")
+    complete.add_argument("--run-id", default=None)
     complete.add_argument("--status", choices=["continue", "pause", "done", "failed"], required=True)
     complete.add_argument("--summary", default="")
     complete.add_argument("--next-delay-seconds", type=int, default=None)
@@ -140,6 +160,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         if option_strings:
             loopd.add_argument(*option_strings, **kwargs)
     loopd.set_defaults(func=lambda ns: loopd_main(_loopd_argv(ns)))
+    add_tui_parser(sub)
     return parser
 
 

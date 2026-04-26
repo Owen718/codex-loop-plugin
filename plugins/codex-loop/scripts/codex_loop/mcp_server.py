@@ -37,6 +37,7 @@ class LoopMcpServer:
             "loop_list": self.loop_list,
             "loop_delete": self.loop_delete,
             "loop_update": self.loop_update,
+            "loop_bind_session": self.loop_bind_session,
             "loop_complete_iteration": self.loop_complete_iteration,
             "loop_read_default_prompt": self.loop_read_default_prompt,
         }
@@ -59,6 +60,16 @@ class LoopMcpServer:
                         "sandbox": {"type": "string", "description": "Sandbox snapshot, e.g. read-only/workspace-write/danger-full-access."},
                         "model": {"type": "string", "description": "Model snapshot."},
                         "max_runs": {"type": "integer", "minimum": 1},
+                        "visibility_policy": {
+                            "type": "string",
+                            "enum": ["visible_only", "thread_only", "background_ok"],
+                        },
+                        "runner": {
+                            "type": "string",
+                            "enum": ["app-server", "codex-mcp", "exec", "dry-run"],
+                        },
+                        "app_server": {"type": "string", "description": "App-server websocket URL for visible loop execution."},
+                        "app_server_token_env": {"type": "string", "description": "Environment variable containing app-server token."},
                     },
                     "required": ["raw_user_input"],
                     "additionalProperties": False,
@@ -100,12 +111,27 @@ class LoopMcpServer:
                 },
             ),
             _tool(
+                "loop_bind_session",
+                "Bind a pending loop task to a concrete Codex session/thread id.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "job_id": {"type": "string"},
+                        "thread_id": {"type": "string"},
+                        "resume": {"type": "boolean"},
+                    },
+                    "required": ["job_id", "thread_id"],
+                    "additionalProperties": False,
+                },
+            ),
+            _tool(
                 "loop_complete_iteration",
                 "Complete the current loop iteration and schedule the next run.",
                 {
                     "type": "object",
                     "properties": {
                         "job_id": {"type": "string"},
+                        "run_id": {"type": "string"},
                         "status": {"type": "string", "enum": ["continue", "pause", "done", "failed"]},
                         "summary": {"type": "string"},
                         "next_delay_seconds": {"type": "integer", "minimum": 60, "maximum": 3600},
@@ -181,11 +207,25 @@ class LoopMcpServer:
             sandbox=args.get("sandbox"),
             model=args.get("model"),
             max_runs=args.get("max_runs"),
+            visibility_policy=args.get("visibility_policy"),
+            runner=args.get("runner"),
         )
-        daemon = ensure_daemon_running(db_path=self.store.path)
+        app_server = args.get("app_server") or os.environ.get("CODEX_LOOP_APP_SERVER")
+        app_server_token_env = args.get("app_server_token_env") or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_ENV")
+        if task.runner == "app-server" and not app_server:
+            daemon = daemon_status()
+        else:
+            daemon = ensure_daemon_running(
+                db_path=self.store.path,
+                runner=task.runner,
+                app_server=app_server,
+                app_server_token_env=app_server_token_env,
+            )
         result = {"created": task.to_dict(), "daemon": daemon.to_dict()}
         if task.thread_id == "current":
-            result["warning"] = "No concrete Codex thread id was provided; scheduled runs may start a new session instead of replying here."
+            result["warning"] = "No concrete Codex thread id was provided; visible loop tasks will pause instead of starting a new session."
+        if task.visibility_policy == "visible_only" and task.runner == "app-server" and not app_server:
+            result["app_server_warning"] = "visible_only loop execution requires CODEX_LOOP_APP_SERVER or an app_server argument."
         return _text_result(result)
 
     def loop_list(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -203,14 +243,24 @@ class LoopMcpServer:
         task = self.store.update_status(args["job_id"], args["status"])
         return _text_result({"task": task.to_dict()})
 
+    def loop_bind_session(self, args: dict[str, Any]) -> dict[str, Any]:
+        task = self.store.bind_task_thread(
+            args["job_id"],
+            args["thread_id"],
+            resume=bool(args.get("resume", True)),
+        )
+        return _text_result({"task": task.to_dict()})
+
     def loop_complete_iteration(self, args: dict[str, Any]) -> dict[str, Any]:
         task = self.store.complete_iteration(
             args["job_id"],
+            run_id=args.get("run_id"),
             status=args["status"],
             summary=args.get("summary", ""),
             next_delay_seconds=args.get("next_delay_seconds"),
             next_delay_reason=args.get("next_delay_reason"),
             thread_id=args.get("thread_id"),
+            completion_source="mcp_tool",
         )
         return _text_result({"task": task.to_dict()})
 
