@@ -27,7 +27,14 @@ Plugin: Codex Loop
 Action: Install or Enable
 ```
 
-Create a loop task inside Codex:
+Start Codex through the visible runtime launcher:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+```
+
+Create loop tasks inside the TUI opened by that command:
 
 ```text
 $loop 5m check deploy status
@@ -42,7 +49,7 @@ $loop cancel <job_id>
 
 ## Codex Entrypoints
 
-The plugin gives you `$loop` after it is installed and enabled:
+The plugin gives you `$loop` after it is installed and enabled. For visible loop turns, use it inside a TUI launched by `codex-loop tui`:
 
 ```text
 $loop 5m check deploy
@@ -77,16 +84,34 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 
 The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution.
 
+Pass Codex CLI options after `--`:
+
+```bash
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD" -- --model gpt-5.2
+```
+
 You can also wire the runtime manually:
 
 ```bash
-codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
+mkdir -p ~/.codex-loop
+codex app-server \
+  --listen ws://127.0.0.1:4500 \
+  --ws-auth capability-token \
+  --ws-token-file ~/.codex-loop/ws-token
+```
+
+In another terminal:
+
+```bash
 export CODEX_LOOP_APP_SERVER=ws://127.0.0.1:4500
+export CODEX_LOOP_APP_SERVER_TOKEN_ENV=CODEX_WS_TOKEN
+export CODEX_LOOP_RUNNER=app-server
+export CODEX_LOOP_VISIBILITY_POLICY=visible_only
 export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
 codex --remote "$CODEX_LOOP_APP_SERVER" --remote-auth-token-env CODEX_WS_TOKEN
 ```
 
-When `CODEX_LOOP_APP_SERVER` is set, `$loop` autostarts `codex-loopd` with the `app-server` runner and writes `~/.codex-loop/loopd.pid` plus `~/.codex-loop/loopd.log`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable autostart.
+When `CODEX_LOOP_APP_SERVER` is set, `$loop` autostarts `codex-loopd` with the `app-server` runner. `codex-loop tui` scopes pid/log files under `~/.codex-loop/runtimes/`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable autostart.
 
 `exec` is the simplest and most stable runner. It starts non-interactive Codex turns:
 
@@ -104,17 +129,14 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 
 Use `codex-mcp` or `exec` only for tasks created with `visibility_policy=thread_only` or `visibility_policy=background_ok`. `visible_only` tasks refuse these runners because they cannot guarantee that the current TUI session will see the scheduled turn.
 
-`app-server` is the current visible-session runner. Start Codex app-server and remote TUI first:
-
-```bash
-codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
-export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
-codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
-LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
-"$LOOP_PLUGIN/scripts/codex-loopd" --runner app-server --app-server ws://127.0.0.1:4500
-```
-
 The app-server runner needs Python's optional `websockets` package.
+
+## Usage Notes
+
+- The recommended startup command is `codex-loop tui --cwd "$PWD"`.
+- Create `$loop` tasks inside the TUI opened by that launcher.
+- The minimum fixed interval is 60 seconds; `20s` and `30s` normalize to `60s`.
+- In a normal Codex TUI without `CODEX_LOOP_APP_SERVER`, default `visible_only` tasks pause instead of opening hidden sessions.
 
 ## Default Prompt
 

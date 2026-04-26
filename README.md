@@ -6,7 +6,7 @@
 
 Claude Code-style recurring loop scheduling for OpenAI Codex.
 
-Codex Loop adds a practical `/loop` equivalent to Codex by combining a Codex skill, MCP tools, durable SQLite state, and a scheduler daemon. It supports fixed intervals, dynamic intervals, task management, default maintenance prompts, daemon autostart, and multiple runner modes for different levels of Codex integration.
+Codex Loop adds a practical `/loop` equivalent to Codex by combining a Codex skill, MCP tools, durable SQLite state, a scheduler daemon, and an app-server based launcher. The default mode is now conservative and visible-session oriented: loop turns are scheduled through a shared `codex app-server` runtime, and tasks pause instead of silently opening a hidden new Codex session.
 
 ```text
 $loop 5m check deploy
@@ -43,7 +43,8 @@ That architecture gives you a close equivalent of Claude Code scheduled tasks wi
 | 7-day task expiry | Supported |
 | Deterministic jitter for fixed loops | Supported |
 | Stop hook fallback | Supported |
-| Scheduler daemon autostart from `$loop` | Supported |
+| Visible app-server launcher, `codex-loop tui` | Supported |
+| Scheduler daemon autostart for visible runtime | Supported |
 | `codex exec` runner | Supported |
 | `codex mcp-server` runner | Supported |
 | `codex app-server` runner | Experimental |
@@ -57,7 +58,7 @@ plugins/codex-loop/                   Plugin package
   .mcp.json                           MCP server config
   skills/loop/SKILL.md                $loop skill instructions
   prompts/loop.md                     /prompts:loop template
-  scripts/codex-loop                  CLI
+  scripts/codex-loop                  CLI, including `codex-loop tui`
   scripts/codex-loopd                 Scheduler daemon
   scripts/codex-loop-mcp              MCP server entrypoint
   scripts/codex_loop/                 Runtime implementation
@@ -83,7 +84,14 @@ Plugin: Codex Loop
 Action: Install or Enable
 ```
 
-Then use Codex normally:
+Then start Codex through the Codex Loop launcher. This is the recommended startup path for the current version:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+```
+
+That command starts a local `codex app-server`, starts `codex-loopd` against the same app-server, then opens `codex --remote`. Create loops inside the TUI opened by this command:
 
 ```text
 $loop 5m check git status and summarize
@@ -95,7 +103,9 @@ What each step means:
 
 - `marketplace add` registers this GitHub repository as a plugin source.
 - Installing/enabling `Codex Loop` loads the `$loop` skill and `codex_loop` MCP tools into Codex.
-- The MCP create tool starts `codex-loopd` automatically by default and reports daemon status in the tool response.
+- The launcher exports `CODEX_LOOP_APP_SERVER`, `CODEX_LOOP_RUNNER=app-server`, and `CODEX_LOOP_VISIBILITY_POLICY=visible_only` into the new Codex TUI.
+- The MCP create tool starts `codex-loopd` against that app-server and reports daemon status in the tool response.
+- If you create a loop in a normal Codex TUI without this runtime, the default `visible_only` task pauses instead of opening a hidden new session.
 
 ## Installation Details
 
@@ -111,9 +121,24 @@ Restart Codex, open the plugin directory UI, select `Codex Loop Plugin`, then in
 
 After this, `$loop` is available inside Codex.
 
-### 3. Scheduler Autostart
+### 3. Launch The Visible Runtime
 
-When `$loop` creates a task through the MCP tool, it starts `codex-loopd` automatically with the `codex-mcp` runner. The daemon pid and log are written under `~/.codex-loop/`.
+Use the installed plugin script to launch the Codex TUI:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+```
+
+The launcher creates a runtime under `~/.codex-loop/runtimes/`, starts a local app-server, starts `codex-loopd --runner app-server`, then opens a remote Codex TUI attached to that runtime.
+
+Pass Codex CLI options after `--`:
+
+```bash
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD" -- --model gpt-5.2
+```
+
+When `$loop` creates a task through the MCP tool in this launched TUI, it is created as `visibility_policy=visible_only` and `runner=app-server`. The daemon pid and log are written under the launcher runtime directory.
 
 Set `CODEX_LOOP_AUTOSTART=0` before launching Codex if you prefer to manage the daemon yourself.
 
@@ -133,20 +158,28 @@ Then use:
 /prompts:loop 5m check deploy
 ```
 
-## Running the Scheduler
+## Startup And Runner Modes
 
-The plugin creates and manages loop tasks, and `$loop` starts `codex-loopd` automatically by default. You can still run the scheduler manually if you want a different runner or service manager.
+The plugin creates and manages loop tasks. For current-session visible behavior, use `codex-loop tui`. You can still run lower-level pieces manually if you want a different service manager.
 
-The simplest runner is `exec`:
+### Recommended: `codex-loop tui`
 
 ```bash
 LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
-"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
 ```
 
-This uses `codex exec` for each due task. It is stable and easy to operate, but it behaves like background automation rather than a live TUI session.
+Useful options:
 
-For the closest interactive behavior, use the app-server runner:
+```bash
+"$LOOP_PLUGIN/scripts/codex-loop" tui --help
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD" --port 4500
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD" -- --model gpt-5.2
+```
+
+### Manual app-server runtime
+
+You can wire the same runtime manually:
 
 ```bash
 mkdir -p ~/.codex-loop
@@ -159,8 +192,12 @@ codex app-server \
 In another terminal:
 
 ```bash
+export CODEX_LOOP_APP_SERVER=ws://127.0.0.1:4500
+export CODEX_LOOP_APP_SERVER_TOKEN_ENV=CODEX_WS_TOKEN
+export CODEX_LOOP_RUNNER=app-server
+export CODEX_LOOP_VISIBILITY_POLICY=visible_only
 export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
-codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
+codex --remote "$CODEX_LOOP_APP_SERVER" --remote-auth-token-env CODEX_WS_TOKEN
 ```
 
 Then start the daemon:
@@ -169,7 +206,8 @@ Then start the daemon:
 LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
 "$LOOP_PLUGIN/scripts/codex-loopd" \
   --runner app-server \
-  --app-server ws://127.0.0.1:4500
+  --app-server "$CODEX_LOOP_APP_SERVER" \
+  --app-server-token-env CODEX_WS_TOKEN
 ```
 
 The app-server runner requires Python's optional `websockets` package:
@@ -178,6 +216,19 @@ The app-server runner requires Python's optional `websockets` package:
 python3 -m pip install websockets
 ```
 
+### Background runners
+
+The simplest runner is `exec`:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
+```
+
+This uses `codex exec` for each due task. It is stable and easy to operate, but it behaves like background automation rather than a live TUI session.
+
+Use `exec` or `codex-mcp` only for tasks explicitly created as `thread_only` or `background_ok`. Default `visible_only` tasks refuse these runners because they cannot guarantee that the current TUI sees the scheduled turn.
+
 ## Usage
 
 Create a fixed loop:
@@ -185,6 +236,8 @@ Create a fixed loop:
 ```text
 $loop 5m check deploy
 ```
+
+The minimum interval is 60 seconds, so `20s` and `30s` are normalized to `60s`.
 
 Create a dynamic loop:
 
@@ -216,6 +269,8 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loop" list
 "$LOOP_PLUGIN/scripts/codex-loop" cancel a1b2c3d4
 ```
+
+Direct CLI-created tasks use the same defaults as `$loop`: `visible_only` and `app-server`. They need `CODEX_LOOP_APP_SERVER` to run, unless you explicitly create a `thread_only` or `background_ok` task for a background runner.
 
 ## Loop Semantics
 
@@ -250,6 +305,8 @@ Codex Loop is deliberately conservative.
 - A task expires after seven days.
 - Missed ticks do not catch up; one due task run is scheduled when the daemon comes back.
 - Running tasks are leased so two daemon processes do not execute the same task concurrently.
+- Every acquired iteration gets a durable `run_id`; completion is idempotent for that run.
+- Default `visible_only` tasks require a concrete session/thread binding and an app-server runner.
 - Running task cancellation sets `cancel_requested`; it stops after the current iteration completes.
 - Repeated failures pause the task.
 - The built-in maintenance prompt tells Codex not to start unrelated work or perform irreversible actions without explicit authorization.
@@ -264,6 +321,7 @@ The plugin exposes these MCP tools:
 | `loop_list` | List active or historical tasks |
 | `loop_delete` | Cancel a task |
 | `loop_update` | Pause, resume, fail, or mark done |
+| `loop_bind_session` | Bind a pending task to a concrete Codex session/thread id |
 | `loop_complete_iteration` | Complete a run and schedule the next one |
 | `loop_read_default_prompt` | Resolve the maintenance prompt |
 
@@ -294,13 +352,14 @@ Run a local smoke test:
 make smoke
 ```
 
-The implementation uses only the Python standard library for the default `exec` and MCP paths. The optional app-server runner needs `websockets`.
+The implementation uses only the Python standard library for the `exec`, MCP, and launcher paths. The app-server runner needs `websockets`.
 
 ## Limitations
 
 - Bare `/loop` is not a native Codex slash command. Use `$loop` from the skill or `/prompts:loop` via the custom prompt template.
 - The Stop hook fallback can only continue when a task is already due at turn stop time. It is not the primary scheduler.
-- The app-server runner is closest to interactive session scheduling, but Codex app-server WebSocket support is still experimental.
+- The app-server runner is the default visible-session path, but Codex app-server WebSocket support is still experimental.
+- `codex-loop tui` currently uses loopd as a second app-server client. If a Codex TUI build does not render turns started by another app-server client, a proxy/multiplexer layer is still needed.
 - Arbitrary TUI slash commands inside loop prompts need adapters; `/prompts:name` and `/review` are handled.
 
 ## License
