@@ -9,6 +9,7 @@ from unittest import mock
 from codex_loop.mcp_server import LoopMcpServer
 from codex_loop.models import RunResult, utcnow
 from codex_loop.parser import parse_loop_args
+from codex_loop.runtime_state import write_active_runtime
 from codex_loop.scheduler import CodexMcpRunner, DryRunRunner, build_iteration_prompt, run_once
 from codex_loop.store import LoopStore
 
@@ -16,7 +17,10 @@ from codex_loop.store import LoopStore
 class McpAndSchedulerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = LoopStore(Path(self.tmp.name) / "loop.sqlite3")
+        self.root = Path(self.tmp.name)
+        self.env_patch = mock.patch.dict("os.environ", {"CODEX_LOOP_ACTIVE_RUNTIME": str(self.root / "active-runtime.json")}, clear=False)
+        self.env_patch.start()
+        self.store = LoopStore(self.root / "loop.sqlite3")
         self.server = LoopMcpServer(self.store)
         self.daemon_patch = mock.patch("codex_loop.mcp_server.ensure_daemon_running")
         self.ensure_daemon = self.daemon_patch.start()
@@ -30,6 +34,7 @@ class McpAndSchedulerTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.daemon_patch.stop()
+        self.env_patch.stop()
         self.tmp.cleanup()
 
     def _call(self, name: str, arguments: dict) -> dict:
@@ -85,6 +90,42 @@ class McpAndSchedulerTests(unittest.TestCase):
         self.assertEqual(created["created"]["thread_id"], "current")
         self.assertIn("warning", created)
         self.assertIn("thread id", created["warning"])
+
+    def test_mcp_server_switches_to_active_runtime_db_without_env_inheritance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active_runtime = root / "active-runtime.json"
+            runtime_dir = root / "runtime"
+            runtime_db = runtime_dir / "loop.sqlite3"
+            with mock.patch.dict("os.environ", {"HOME": tmp, "CODEX_LOOP_ACTIVE_RUNTIME": str(active_runtime)}, clear=True):
+                server = LoopMcpServer()
+                write_active_runtime(
+                    {
+                        "CODEX_LOOP_RUNTIME_DIR": str(runtime_dir),
+                        "CODEX_LOOP_DB": str(runtime_db),
+                        "CODEX_LOOP_APP_SERVER": "ws://127.0.0.1:4555",
+                        "CODEX_LOOP_APP_SERVER_TOKEN_FILE": str(runtime_dir / "ws-token"),
+                        "CODEX_LOOP_RUNNER": "app-server",
+                        "CODEX_LOOP_VISIBILITY_POLICY": "visible_only",
+                    }
+                )
+                with mock.patch("codex_loop.mcp_server.ensure_daemon_running") as ensure_daemon:
+                    ensure_daemon.return_value.to_dict.return_value = {"enabled": True, "running": True}
+                    response = server.handle(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "loop_create",
+                                "arguments": {"raw_user_input": "1m ping", "cwd": tmp, "thread_id": "thread-real"},
+                            },
+                        }
+                    )
+
+            self.assertNotIn("error", response)
+            self.assertEqual(Path(ensure_daemon.call_args.kwargs["db_path"]), runtime_db)
+            self.assertEqual(LoopStore(runtime_db).list_tasks(thread_id="thread-real")[0].prompt, "ping")
 
     def test_tools_list(self) -> None:
         response = self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})

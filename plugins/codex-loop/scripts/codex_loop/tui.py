@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .daemon import ensure_daemon_running, is_pid_running
+from .runtime_state import clear_active_runtime, write_active_runtime
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -210,6 +211,7 @@ def launch_tui(args: argparse.Namespace) -> int:
     else:
         token = ensure_token_file(runtime.token_file, rotate=args.rotate_token)
     env = build_runtime_env(os.environ, runtime, token)
+    write_active_runtime(env)
 
     app_server_proc: subprocess.Popen | None = None
     loopd_pid: int | None = None
@@ -252,6 +254,7 @@ def launch_tui(args: argparse.Namespace) -> int:
         return 130
     finally:
         if not args.keep_running:
+            clear_active_runtime(str(runtime.runtime_dir))
             _stop_process(app_server_proc)
             if loopd_pid is None and loopd_started:
                 loopd_pid = _read_pid(runtime.loopd_pid_path)

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .runtime_state import active_runtime_value
+
 
 RUNTIME_DIR = Path.home() / ".codex-loop"
 DEFAULT_PID_PATH = RUNTIME_DIR / "loopd.pid"
@@ -78,10 +80,10 @@ def _runtime_name(app_server_url: str) -> str | None:
 
 
 def _runtime_default_path(filename: str) -> Path | None:
-    runtime_dir = os.environ.get("CODEX_LOOP_RUNTIME_DIR")
+    runtime_dir = active_runtime_value("CODEX_LOOP_RUNTIME_DIR")
     if runtime_dir:
         return Path(runtime_dir).expanduser() / filename
-    app_server = os.environ.get("CODEX_LOOP_APP_SERVER")
+    app_server = active_runtime_value("CODEX_LOOP_APP_SERVER")
     if not app_server:
         return None
     runtime_name = _runtime_name(app_server)

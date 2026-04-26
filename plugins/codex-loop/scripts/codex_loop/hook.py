@@ -5,6 +5,7 @@ import json
 import sys
 from typing import Any
 
+from .runtime_state import apply_active_runtime_to_env
 from .scheduler import build_iteration_prompt
 from .store import LoopStore
 
@@ -55,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         raw_event = sys.stdin.read()
         event = _load_event(raw_event)
+        apply_active_runtime_to_env()
         store = LoopStore(args.db)
         if args.bind_created_task:
             task_id = _find_created_task_id(event)

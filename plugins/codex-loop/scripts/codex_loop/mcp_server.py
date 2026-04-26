@@ -10,6 +10,7 @@ from typing import Any, Callable
 from .daemon import daemon_status, ensure_daemon_running
 from .parser import parse_loop_args
 from .prompts import resolve_default_prompt
+from .runtime_state import active_runtime_value, apply_active_runtime_to_env
 from .store import LoopStore, summarize_tasks
 
 
@@ -30,8 +31,9 @@ def _tool(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]
 
 
 class LoopMcpServer:
-    def __init__(self, store: LoopStore):
-        self.store = store
+    def __init__(self, store: LoopStore | None = None, db_path: str | None = None):
+        self._fixed_store = store is not None or db_path is not None
+        self.store = store or (LoopStore(db_path) if db_path is not None else None)
         self.tools: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "loop_create": self.loop_create,
             "loop_list": self.loop_list,
@@ -41,6 +43,17 @@ class LoopMcpServer:
             "loop_complete_iteration": self.loop_complete_iteration,
             "loop_read_default_prompt": self.loop_read_default_prompt,
         }
+
+    def current_store(self) -> LoopStore:
+        apply_active_runtime_to_env()
+        if self._fixed_store:
+            if self.store is None:
+                raise RuntimeError("fixed loop store was not initialized")
+            return self.store
+        current = LoopStore()
+        if self.store is None or current.path != self.store.path:
+            self.store = current
+        return self.store
 
     def tool_specs(self) -> list[dict[str, Any]]:
         return [
@@ -165,7 +178,7 @@ class LoopMcpServer:
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "codex-loop", "version": "0.1.3"},
+                        "serverInfo": {"name": "codex-loop", "version": "0.1.4"},
                     },
                 }
             if method == "notifications/initialized":
@@ -195,12 +208,13 @@ class LoopMcpServer:
         return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
     def loop_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        store = self.current_store()
         cwd = args.get("cwd") or os.getcwd()
         parsed = parse_loop_args(args["raw_user_input"], cwd=cwd)
         if parsed.action != "create":
             return _text_result({"action": parsed.action, "message": "Use loop_list/loop_delete/loop_update for management actions."})
         thread_id = args.get("thread_id") or os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_LOOP_THREAD_ID")
-        task = self.store.create_task(
+        task = store.create_task(
             parsed,
             thread_id=thread_id,
             cwd=cwd,
@@ -211,14 +225,14 @@ class LoopMcpServer:
             visibility_policy=args.get("visibility_policy"),
             runner=args.get("runner"),
         )
-        app_server = args.get("app_server") or os.environ.get("CODEX_LOOP_APP_SERVER")
-        app_server_token_env = args.get("app_server_token_env") or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_ENV")
-        app_server_token_file = args.get("app_server_token_file") or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_FILE")
+        app_server = args.get("app_server") or active_runtime_value("CODEX_LOOP_APP_SERVER")
+        app_server_token_env = args.get("app_server_token_env") or active_runtime_value("CODEX_LOOP_APP_SERVER_TOKEN_ENV")
+        app_server_token_file = args.get("app_server_token_file") or active_runtime_value("CODEX_LOOP_APP_SERVER_TOKEN_FILE")
         if task.runner == "app-server" and not app_server:
             daemon = daemon_status()
         else:
             daemon = ensure_daemon_running(
-                db_path=self.store.path,
+                db_path=store.path,
                 runner=task.runner,
                 app_server=app_server,
                 app_server_token_env=app_server_token_env,
@@ -232,22 +246,22 @@ class LoopMcpServer:
         return _text_result(result)
 
     def loop_list(self, args: dict[str, Any]) -> dict[str, Any]:
-        tasks = self.store.list_tasks(
+        tasks = self.current_store().list_tasks(
             thread_id=args.get("thread_id"),
             include_inactive=bool(args.get("include_inactive", False)),
         )
         return _text_result({"tasks": summarize_tasks(tasks), "daemon": daemon_status().to_dict()})
 
     def loop_delete(self, args: dict[str, Any]) -> dict[str, Any]:
-        task = self.store.request_cancel(args["job_id"])
+        task = self.current_store().request_cancel(args["job_id"])
         return _text_result({"task": task.to_dict()})
 
     def loop_update(self, args: dict[str, Any]) -> dict[str, Any]:
-        task = self.store.update_status(args["job_id"], args["status"])
+        task = self.current_store().update_status(args["job_id"], args["status"])
         return _text_result({"task": task.to_dict()})
 
     def loop_bind_session(self, args: dict[str, Any]) -> dict[str, Any]:
-        task = self.store.bind_task_thread(
+        task = self.current_store().bind_task_thread(
             args["job_id"],
             args["thread_id"],
             resume=bool(args.get("resume", True)),
@@ -255,7 +269,7 @@ class LoopMcpServer:
         return _text_result({"task": task.to_dict()})
 
     def loop_complete_iteration(self, args: dict[str, Any]) -> dict[str, Any]:
-        task = self.store.complete_iteration(
+        task = self.current_store().complete_iteration(
             args["job_id"],
             run_id=args.get("run_id"),
             status=args["status"],
@@ -290,7 +304,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    return LoopMcpServer(LoopStore(args.db)).serve()
+    return LoopMcpServer(db_path=args.db).serve()
 
 
 if __name__ == "__main__":

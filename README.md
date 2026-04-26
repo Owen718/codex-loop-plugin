@@ -105,6 +105,7 @@ What each step means:
 - Installing/enabling `Codex Loop` loads the `$loop` skill and `codex_loop` MCP tools into Codex.
 - The launcher exports `CODEX_LOOP_APP_SERVER`, `CODEX_LOOP_APP_SERVER_TOKEN_FILE`, `CODEX_LOOP_RUNNER=app-server`, and `CODEX_LOOP_VISIBILITY_POLICY=visible_only` into the new Codex TUI.
 - The launcher stores each runtime's DB, pid files, logs, and websocket token under `~/.codex-loop/runtimes/<host-port>/`, so new code does not reuse an old global `~/.codex-loop/loop.sqlite3` schema.
+- The launcher also writes `~/.codex-loop/active-runtime.json`; the MCP server reads this file if Codex does not inherit the TUI environment into MCP subprocesses.
 - The MCP create tool starts `codex-loopd` against that app-server and reports daemon status in the tool response.
 - If you create a loop in a normal Codex TUI without this runtime, the default `visible_only` task pauses instead of opening a hidden new session.
 

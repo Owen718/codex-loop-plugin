@@ -94,7 +94,11 @@ class TuiLauncherTests(unittest.TestCase):
                     "codex-test",
                 ]
             )
-            with mock.patch.dict("os.environ", {"CODEX_WS_TOKEN": "existing-token"}, clear=False):
+            with mock.patch.dict(
+                "os.environ",
+                {"CODEX_WS_TOKEN": "existing-token", "CODEX_LOOP_ACTIVE_RUNTIME": str(Path(tmp) / "active-runtime.json")},
+                clear=False,
+            ):
                 with mock.patch("codex_loop.tui.wait_for_app_server") as wait:
                     with mock.patch("codex_loop.tui.subprocess.call", return_value=0) as call:
                         status = args.func(args)
@@ -123,18 +127,19 @@ class TuiLauncherTests(unittest.TestCase):
                     "codex-test",
                 ]
             )
-            with mock.patch("codex_loop.tui.subprocess.Popen") as popen:
-                popen.return_value.pid = 23456
-                popen.return_value.poll.return_value = None
-                popen.return_value.terminate.return_value = None
-                popen.return_value.wait.return_value = 0
-                with mock.patch("codex_loop.tui.wait_for_app_server"):
-                    with mock.patch("codex_loop.tui.ensure_daemon_running") as ensure_daemon:
-                        ensure_daemon.return_value.pid = 34567
-                        ensure_daemon.return_value.started = True
-                        with mock.patch("codex_loop.tui.subprocess.call", return_value=0):
-                            with mock.patch("codex_loop.tui._terminate_pid"):
-                                status = args.func(args)
+            with mock.patch.dict("os.environ", {"CODEX_LOOP_ACTIVE_RUNTIME": str(Path(tmp) / "active-runtime.json")}, clear=False):
+                with mock.patch("codex_loop.tui.subprocess.Popen") as popen:
+                    popen.return_value.pid = 23456
+                    popen.return_value.poll.return_value = None
+                    popen.return_value.terminate.return_value = None
+                    popen.return_value.wait.return_value = 0
+                    with mock.patch("codex_loop.tui.wait_for_app_server"):
+                        with mock.patch("codex_loop.tui.ensure_daemon_running") as ensure_daemon:
+                            ensure_daemon.return_value.pid = 34567
+                            ensure_daemon.return_value.started = True
+                            with mock.patch("codex_loop.tui.subprocess.call", return_value=0):
+                                with mock.patch("codex_loop.tui._terminate_pid"):
+                                    status = args.func(args)
 
         self.assertEqual(status, 0)
         self.assertEqual(ensure_daemon.call_args.kwargs["app_server_token_env"], "CODEX_WS_TOKEN")

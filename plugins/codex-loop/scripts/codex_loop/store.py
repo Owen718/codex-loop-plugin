@@ -11,6 +11,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from .models import CompletionStatus, LoopRun, LoopTask, ParsedLoop, iso, utcnow
+from .runtime_state import active_runtime_value
 
 
 SCHEMA_VERSION = 2
@@ -24,11 +25,13 @@ MAX_TASKS_PER_THREAD = 50
 
 
 def default_db_path() -> Path:
-    if os.environ.get("CODEX_LOOP_DB"):
-        return Path(os.environ["CODEX_LOOP_DB"]).expanduser()
-    if os.environ.get("CODEX_LOOP_RUNTIME_DIR"):
-        return Path(os.environ["CODEX_LOOP_RUNTIME_DIR"]).expanduser() / "loop.sqlite3"
-    app_server = os.environ.get("CODEX_LOOP_APP_SERVER")
+    runtime_db = active_runtime_value("CODEX_LOOP_DB")
+    if runtime_db:
+        return Path(runtime_db).expanduser()
+    runtime_dir = active_runtime_value("CODEX_LOOP_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir).expanduser() / "loop.sqlite3"
+    app_server = active_runtime_value("CODEX_LOOP_APP_SERVER")
     if app_server:
         parsed = urlparse(app_server)
         if parsed.scheme in {"ws", "wss"} and parsed.port is not None:
@@ -38,17 +41,17 @@ def default_db_path() -> Path:
 
 
 def default_visibility_policy() -> str:
-    value = os.environ.get("CODEX_LOOP_VISIBILITY_POLICY", DEFAULT_VISIBILITY_POLICY).strip()
+    value = (active_runtime_value("CODEX_LOOP_VISIBILITY_POLICY") or DEFAULT_VISIBILITY_POLICY).strip()
     if value not in {"visible_only", "thread_only", "background_ok"}:
         return DEFAULT_VISIBILITY_POLICY
     return value
 
 
 def default_runner() -> str:
-    value = os.environ.get("CODEX_LOOP_RUNNER", "").strip()
+    value = (active_runtime_value("CODEX_LOOP_RUNNER") or "").strip()
     if value in {"app-server", "codex-mcp", "exec", "dry-run"}:
         return value
-    if os.environ.get("CODEX_LOOP_APP_SERVER"):
+    if active_runtime_value("CODEX_LOOP_APP_SERVER"):
         return "app-server"
     return DEFAULT_RUNNER
 

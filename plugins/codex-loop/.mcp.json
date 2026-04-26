@@ -14,6 +14,7 @@
         "loop_list",
         "loop_delete",
         "loop_update",
+        "loop_bind_session",
         "loop_complete_iteration",
         "loop_read_default_prompt"
       ]
