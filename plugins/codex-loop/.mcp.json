@@ -3,7 +3,8 @@
     "codex_loop": {
       "command": "python3",
       "args": [
-        "./scripts/codex-loop-mcp"
+        "-c",
+        "import pathlib, runpy, sys; root = pathlib.Path.home() / '.codex' / 'plugins' / 'cache' / 'codex-loop-plugin' / 'codex-loop'; versions = sorted(p for p in root.iterdir() if p.is_dir()); script = versions[-1] / 'scripts' / 'codex-loop-mcp'; sys.path.insert(0, str(script.parent)); runpy.run_path(str(script), run_name='__main__')"
       ],
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 60,
