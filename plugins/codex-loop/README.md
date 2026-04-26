@@ -82,7 +82,7 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
 ```
 
-The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution. Runtime state is scoped under `~/.codex-loop/runtimes/<host-port>/`, including `loop.sqlite3`, pid files, logs, and the websocket token. The launcher also writes `~/.codex-loop/active-runtime.json` so the MCP server can find the runtime even when Codex does not pass the TUI environment into MCP subprocesses.
+The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution. By default, `codex-loop tui` launches Codex with `--dangerously-bypass-approvals-and-sandbox`; pass `--no-yolo` to disable that default, or pass an explicit Codex permission option after `--`. Runtime state is scoped under `~/.codex-loop/runtimes/<host-port>/`, including `loop.sqlite3`, pid files, logs, and the websocket token. The launcher also writes `~/.codex-loop/active-runtime.json` so the MCP server can find the runtime even when Codex does not pass the TUI environment into MCP subprocesses.
 
 Pass Codex CLI options after `--`:
 

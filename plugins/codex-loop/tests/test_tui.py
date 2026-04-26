@@ -50,6 +50,7 @@ class TuiLauncherTests(unittest.TestCase):
                 db=None,
                 codex_bin="codex-test",
                 cwd="/repo",
+                yolo=True,
                 codex_args=["--", "--model", "gpt-test"],
             )
             runtime = build_runtime(args)
@@ -63,6 +64,7 @@ class TuiLauncherTests(unittest.TestCase):
                 "ws://127.0.0.1:4555",
                 "--remote-auth-token-env",
                 "CODEX_WS_TOKEN",
+                "--dangerously-bypass-approvals-and-sandbox",
                 "--cd",
                 "/repo",
                 "--model",
@@ -70,11 +72,53 @@ class TuiLauncherTests(unittest.TestCase):
             ],
         )
 
+    def test_codex_tui_command_respects_explicit_permission_args(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(
+                app_server="ws://127.0.0.1:4555",
+                host="127.0.0.1",
+                port=None,
+                runtime_dir=tmp,
+                token_file=None,
+                token_env="CODEX_WS_TOKEN",
+                db=None,
+                codex_bin="codex-test",
+                cwd="/repo",
+                yolo=True,
+                codex_args=["--", "--ask-for-approval", "on-request"],
+            )
+            runtime = build_runtime(args)
+            command = build_codex_tui_command(args, runtime)
+
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
+        self.assertEqual(command[-2:], ["--ask-for-approval", "on-request"])
+
+    def test_codex_tui_command_can_disable_default_yolo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(
+                app_server="ws://127.0.0.1:4555",
+                host="127.0.0.1",
+                port=None,
+                runtime_dir=tmp,
+                token_file=None,
+                token_env="CODEX_WS_TOKEN",
+                db=None,
+                codex_bin="codex-test",
+                cwd="/repo",
+                yolo=False,
+                codex_args=[],
+            )
+            runtime = build_runtime(args)
+            command = build_codex_tui_command(args, runtime)
+
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
+
     def test_cli_has_tui_subcommand(self) -> None:
         parser = build_arg_parser()
         args = parser.parse_args(["tui", "--app-server", "ws://127.0.0.1:4555", "--no-loopd", "--", "--model", "x"])
         self.assertEqual(args.command, "tui")
         self.assertEqual(args.app_server, "ws://127.0.0.1:4555")
+        self.assertTrue(args.yolo)
         self.assertEqual(args.codex_args, ["--", "--model", "x"])
 
     def test_launch_tui_against_existing_app_server_calls_remote_codex(self) -> None:

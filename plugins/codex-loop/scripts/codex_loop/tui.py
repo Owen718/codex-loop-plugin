@@ -18,6 +18,7 @@ from .runtime_state import clear_active_runtime, write_active_runtime
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_TOKEN_ENV = "CODEX_WS_TOKEN"
+YOLO_FLAG = "--dangerously-bypass-approvals-and-sandbox"
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,19 @@ def build_app_server_command(codex_bin: str, runtime: TuiRuntime) -> list[str]:
     ]
 
 
+def _codex_args_set_permission_mode(codex_args: list[str]) -> bool:
+    permission_flags = {
+        YOLO_FLAG,
+        "--full-auto",
+        "--sandbox",
+        "-s",
+        "--ask-for-approval",
+        "-a",
+    }
+    permission_prefixes = ("--sandbox=", "--ask-for-approval=")
+    return any(arg in permission_flags or arg.startswith(permission_prefixes) for arg in codex_args)
+
+
 def build_codex_tui_command(args: argparse.Namespace, runtime: TuiRuntime) -> list[str]:
     codex_args = list(args.codex_args or [])
     if codex_args and codex_args[0] == "--":
@@ -131,6 +145,8 @@ def build_codex_tui_command(args: argparse.Namespace, runtime: TuiRuntime) -> li
         "--remote-auth-token-env",
         runtime.token_env,
     ]
+    if getattr(args, "yolo", True) and not _codex_args_set_permission_mode(codex_args):
+        command.append(YOLO_FLAG)
     if args.cwd:
         command.extend(["--cd", args.cwd])
     command.extend(codex_args)
@@ -277,5 +293,19 @@ def add_tui_parser(sub: argparse._SubParsersAction) -> None:
     tui.add_argument("--app-server-timeout", type=float, default=15.0)
     tui.add_argument("--no-loopd", action="store_true")
     tui.add_argument("--keep-running", action="store_true")
+    yolo = tui.add_mutually_exclusive_group()
+    yolo.add_argument(
+        "--yolo",
+        dest="yolo",
+        action="store_true",
+        default=True,
+        help="Launch Codex with --dangerously-bypass-approvals-and-sandbox by default.",
+    )
+    yolo.add_argument(
+        "--no-yolo",
+        dest="yolo",
+        action="store_false",
+        help="Do not add --dangerously-bypass-approvals-and-sandbox automatically.",
+    )
     tui.add_argument("codex_args", nargs=argparse.REMAINDER, help="Extra args passed to codex after --.")
     tui.set_defaults(func=launch_tui)
