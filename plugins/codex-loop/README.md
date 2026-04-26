@@ -5,7 +5,7 @@ Codex Loop is a plugin-shaped implementation of recurring prompt scheduling for 
 - `skills/loop`: user-facing `$loop` and `/prompts:loop` semantics
 - MCP server: durable task CRUD and iteration completion tools
 - SQLite store: task state, leases, expiry, no-catch-up scheduling
-- `codex-loopd`: external scheduler daemon
+- `codex-loopd`: scheduler daemon, autostarted by `$loop` task creation
 - runners: `app-server`, `codex-mcp`, `exec`, and `dry-run`
 - Stop hook fallback: immediate continuation for already-due jobs
 
@@ -25,13 +25,6 @@ Restart Codex, then install or enable:
 Marketplace/source: Codex Loop Plugin
 Plugin: Codex Loop
 Action: Install or Enable
-```
-
-Start the scheduler in another terminal:
-
-```bash
-LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
-"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
 ```
 
 Create a loop task inside Codex:
@@ -72,6 +65,8 @@ Then use:
 ```
 
 ## Runners
+
+By default, `$loop` starts `codex-loopd` automatically with the `codex-mcp` runner and writes `~/.codex-loop/loopd.pid` plus `~/.codex-loop/loopd.log`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable that behavior.
 
 `exec` is the simplest and most stable runner. It starts non-interactive Codex turns:
 

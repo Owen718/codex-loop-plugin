@@ -42,7 +42,7 @@ class StdioMcpClient:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "codex-loopd", "version": "0.1.0"},
+                "clientInfo": {"name": "codex-loopd", "version": "0.1.2"},
             },
         )
         self.notify("notifications/initialized", {})

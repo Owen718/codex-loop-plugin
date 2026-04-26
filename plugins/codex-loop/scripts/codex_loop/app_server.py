@@ -45,7 +45,7 @@ class AppServerRunner:
             await rpc.call(
                 "initialize",
                 {
-                    "clientInfo": {"name": "codex-loopd", "version": "0.1.0"},
+                    "clientInfo": {"name": "codex-loopd", "version": "0.1.2"},
                     "capabilities": {"experimentalApi": True},
                 },
             )

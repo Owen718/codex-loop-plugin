@@ -6,7 +6,7 @@
 
 Claude Code-style recurring loop scheduling for OpenAI Codex.
 
-Codex Loop adds a practical `/loop` equivalent to Codex by combining a Codex skill, MCP tools, durable SQLite state, and an external scheduler daemon. It supports fixed intervals, dynamic intervals, task management, default maintenance prompts, and multiple runner modes for different levels of Codex integration.
+Codex Loop adds a practical `/loop` equivalent to Codex by combining a Codex skill, MCP tools, durable SQLite state, and a scheduler daemon. It supports fixed intervals, dynamic intervals, task management, default maintenance prompts, daemon autostart, and multiple runner modes for different levels of Codex integration.
 
 ```text
 $loop 5m check deploy
@@ -43,6 +43,7 @@ That architecture gives you a close equivalent of Claude Code scheduled tasks wi
 | 7-day task expiry | Supported |
 | Deterministic jitter for fixed loops | Supported |
 | Stop hook fallback | Supported |
+| Scheduler daemon autostart from `$loop` | Supported |
 | `codex exec` runner | Supported |
 | `codex mcp-server` runner | Supported |
 | `codex app-server` runner | Experimental |
@@ -82,13 +83,6 @@ Plugin: Codex Loop
 Action: Install or Enable
 ```
 
-Start the scheduler in another terminal:
-
-```bash
-LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
-"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
-```
-
 Then use Codex normally:
 
 ```text
@@ -101,7 +95,7 @@ What each step means:
 
 - `marketplace add` registers this GitHub repository as a plugin source.
 - Installing/enabling `Codex Loop` loads the `$loop` skill and `codex_loop` MCP tools into Codex.
-- `codex-loopd` is the timer process. Loops only fire while it is running.
+- The MCP create tool starts `codex-loopd` automatically by default and reports daemon status in the tool response.
 
 ## Installation Details
 
@@ -117,16 +111,11 @@ Restart Codex, open the plugin directory UI, select `Codex Loop Plugin`, then in
 
 After this, `$loop` is available inside Codex.
 
-### 3. Start The Scheduler
+### 3. Scheduler Autostart
 
-Codex installs the plugin into `~/.codex/plugins/cache/...`. Use the installed copy to start the daemon:
+When `$loop` creates a task through the MCP tool, it starts `codex-loopd` automatically with the `codex-mcp` runner. The daemon pid and log are written under `~/.codex-loop/`.
 
-```bash
-LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
-"$LOOP_PLUGIN/scripts/codex-loopd" --runner exec
-```
-
-Keep that process running in another terminal, tmux pane, or service manager.
+Set `CODEX_LOOP_AUTOSTART=0` before launching Codex if you prefer to manage the daemon yourself.
 
 ### Optional: enable `/prompts:loop`
 
@@ -146,7 +135,7 @@ Then use:
 
 ## Running the Scheduler
 
-The plugin creates and manages loop tasks, but scheduled tasks only run while `codex-loopd` is running. Keep the daemon open in another terminal.
+The plugin creates and manages loop tasks, and `$loop` starts `codex-loopd` automatically by default. You can still run the scheduler manually if you want a different runner or service manager.
 
 The simplest runner is `exec`:
 

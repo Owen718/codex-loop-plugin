@@ -1,6 +1,6 @@
 {
   "name": "codex-loop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Claude Code style recurring loop scheduling for Codex threads.",
   "author": {
     "name": "Codex Loop Contributors"
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Codex Loop",
     "shortDescription": "Recurring prompt scheduler for Codex threads.",
-    "longDescription": "Adds /prompts:loop and $loop workflows, MCP task management, SQLite state, a loopd daemon, and a Stop hook fallback for recurring Codex maintenance tasks.",
+    "longDescription": "Adds /prompts:loop and $loop workflows, MCP task management, SQLite state, daemon autostart, and a Stop hook fallback for recurring Codex maintenance tasks.",
     "developerName": "Codex Loop Contributors",
     "category": "Productivity",
     "capabilities": [

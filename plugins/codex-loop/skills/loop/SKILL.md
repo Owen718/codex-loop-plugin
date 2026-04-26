@@ -5,7 +5,7 @@ description: "Create, inspect, pause, resume, cancel, and complete recurring Cod
 
 # Codex Loop
 
-This skill is the user-facing entrypoint for the Codex Loop plugin. It does not wait or sleep itself. It parses the user intent, calls the `codex_loop` MCP tools, and relies on `codex-loopd` or the optional Stop hook fallback to trigger future iterations.
+This skill is the user-facing entrypoint for the Codex Loop plugin. It parses the user intent, calls the `codex_loop` MCP tools, and relies on `codex-loopd` or the optional Stop hook fallback to trigger future iterations. The MCP tool starts `codex-loopd` automatically unless `CODEX_LOOP_AUTOSTART=0`.
 
 ## Supported user forms
 
@@ -24,7 +24,7 @@ This skill is the user-facing entrypoint for the Codex Loop plugin. It does not 
 1. If the request is create-like, call `mcp__codex_loop__loop_create` with:
    - `raw_user_input`: the raw arguments after `$loop` or `/prompts:loop`
    - `cwd`: current working directory
-   - `thread_id`: current thread id if it is visible in the environment or conversation; omit it if unknown
+   - `thread_id`: the current Codex thread id. Prefer the `CODEX_THREAD_ID` environment variable. If it is not already visible, run `printf '%s\n' "$CODEX_THREAD_ID"` and pass the non-empty value.
    - `approval_policy`, `sandbox`, `model`: current snapshots if known; omit unknown values
 2. If the user asks for list/status, call `mcp__codex_loop__loop_list`.
 3. If the user asks to cancel/delete/rm, call `mcp__codex_loop__loop_delete` with `job_id`.
@@ -49,4 +49,4 @@ Bare `$loop` and interval-only forms use the default maintenance prompt resolved
 
 ## User Response Style
 
-When a task is created, report only the useful task fields: job id, schedule kind, next run time, prompt kind, and how to cancel it. Do not imply that the skill itself will wake Codex; mention that `codex-loopd` must be running for scheduled execution.
+When a task is created, report only the useful task fields: job id, schedule kind, next run time, prompt kind, daemon status, and how to cancel it. If the response includes a warning about a missing concrete thread id, surface that warning.

@@ -4,11 +4,12 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest import mock
 
 from codex_loop.mcp_server import LoopMcpServer
-from codex_loop.models import utcnow
+from codex_loop.models import RunResult, utcnow
 from codex_loop.parser import parse_loop_args
-from codex_loop.scheduler import DryRunRunner, build_iteration_prompt, run_once
+from codex_loop.scheduler import CodexMcpRunner, DryRunRunner, build_iteration_prompt, run_once
 from codex_loop.store import LoopStore
 
 
@@ -17,8 +18,18 @@ class McpAndSchedulerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = LoopStore(Path(self.tmp.name) / "loop.sqlite3")
         self.server = LoopMcpServer(self.store)
+        self.daemon_patch = mock.patch("codex_loop.mcp_server.ensure_daemon_running")
+        self.ensure_daemon = self.daemon_patch.start()
+        self.ensure_daemon.return_value.to_dict.return_value = {
+            "enabled": True,
+            "running": True,
+            "started": False,
+            "pid": 123,
+            "reason": "running",
+        }
 
     def tearDown(self) -> None:
+        self.daemon_patch.stop()
         self.tmp.cleanup()
 
     def _call(self, name: str, arguments: dict) -> dict:
@@ -39,6 +50,30 @@ class McpAndSchedulerTests(unittest.TestCase):
             {"job_id": job_id, "status": "pause", "summary": "blocked"},
         )
         self.assertEqual(updated["task"]["status"], "paused")
+
+    def test_mcp_create_uses_env_thread_id_and_autostarts_daemon(self) -> None:
+        with mock.patch.dict("os.environ", {"CODEX_THREAD_ID": "thread-real"}, clear=False):
+            self.ensure_daemon.return_value.to_dict.return_value = {
+                "enabled": True,
+                "running": True,
+                "started": True,
+                "pid": 123,
+                "reason": "started",
+            }
+            created = self._call("loop_create", {"raw_user_input": "5m check deploy", "cwd": self.tmp.name})
+
+        self.assertEqual(created["created"]["thread_id"], "thread-real")
+        self.assertEqual(created["daemon"]["started"], True)
+        self.ensure_daemon.assert_called_once()
+        self.assertEqual(Path(self.ensure_daemon.call_args.kwargs["db_path"]), self.store.path)
+
+    def test_mcp_create_warns_without_concrete_thread_id(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            created = self._call("loop_create", {"raw_user_input": "5m check deploy", "cwd": self.tmp.name})
+
+        self.assertEqual(created["created"]["thread_id"], "current")
+        self.assertIn("warning", created)
+        self.assertIn("thread id", created["warning"])
 
     def test_tools_list(self) -> None:
         response = self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
@@ -62,6 +97,28 @@ class McpAndSchedulerTests(unittest.TestCase):
         self.assertEqual(updated.status, "active")
         self.assertEqual(updated.run_count, 1)
         self.assertEqual(updated.last_result_summary, f"dry run for {task.id}")
+
+    def test_codex_mcp_runner_replies_to_known_thread_id(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def list_tools(self) -> list[dict]:
+                return [{"name": "codex"}, {"name": "codex-reply"}]
+
+            def call_tool(self, name: str, arguments: dict) -> dict:
+                self.calls.append((name, arguments))
+                return {"threadId": arguments.get("threadId", "new-thread"), "content": "ok"}
+
+        task = self.store.create_task(parse_loop_args("1m do work"), thread_id="thread-real", cwd=self.tmp.name)
+        client = FakeClient()
+        runner = CodexMcpRunner.__new__(CodexMcpRunner)
+        runner.client = client
+
+        result: RunResult = runner.run(task, "prompt")
+
+        self.assertEqual(result.thread_id, "thread-real")
+        self.assertEqual(client.calls, [("codex-reply", {"threadId": "thread-real", "prompt": "prompt", "cwd": self.tmp.name})])
 
 
 if __name__ == "__main__":

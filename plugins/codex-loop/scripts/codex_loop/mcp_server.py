@@ -7,6 +7,7 @@ import sys
 import traceback
 from typing import Any, Callable
 
+from .daemon import daemon_status, ensure_daemon_running
 from .parser import parse_loop_args
 from .prompts import resolve_default_prompt
 from .store import LoopStore, summarize_tasks
@@ -49,7 +50,10 @@ class LoopMcpServer:
                     "type": "object",
                     "properties": {
                         "raw_user_input": {"type": "string", "description": "Raw loop arguments, e.g. '5m check deploy'."},
-                        "thread_id": {"type": "string", "description": "Current Codex thread id if known."},
+                        "thread_id": {
+                            "type": "string",
+                            "description": "Current Codex thread id. In Codex, pass CODEX_THREAD_ID so loopd can reply to this thread.",
+                        },
                         "cwd": {"type": "string", "description": "Working directory for this loop."},
                         "approval_policy": {"type": "string", "description": "Approval policy snapshot, e.g. never/on-request."},
                         "sandbox": {"type": "string", "description": "Sandbox snapshot, e.g. read-only/workspace-write/danger-full-access."},
@@ -134,7 +138,7 @@ class LoopMcpServer:
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "codex-loop", "version": "0.1.0"},
+                        "serverInfo": {"name": "codex-loop", "version": "0.1.2"},
                     },
                 }
             if method == "notifications/initialized":
@@ -168,23 +172,28 @@ class LoopMcpServer:
         parsed = parse_loop_args(args["raw_user_input"], cwd=cwd)
         if parsed.action != "create":
             return _text_result({"action": parsed.action, "message": "Use loop_list/loop_delete/loop_update for management actions."})
+        thread_id = args.get("thread_id") or os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_LOOP_THREAD_ID")
         task = self.store.create_task(
             parsed,
-            thread_id=args.get("thread_id"),
+            thread_id=thread_id,
             cwd=cwd,
             approval_policy=args.get("approval_policy"),
             sandbox=args.get("sandbox"),
             model=args.get("model"),
             max_runs=args.get("max_runs"),
         )
-        return _text_result({"created": task.to_dict()})
+        daemon = ensure_daemon_running(db_path=self.store.path)
+        result = {"created": task.to_dict(), "daemon": daemon.to_dict()}
+        if task.thread_id == "current":
+            result["warning"] = "No concrete Codex thread id was provided; scheduled runs may start a new session instead of replying here."
+        return _text_result(result)
 
     def loop_list(self, args: dict[str, Any]) -> dict[str, Any]:
         tasks = self.store.list_tasks(
             thread_id=args.get("thread_id"),
             include_inactive=bool(args.get("include_inactive", False)),
         )
-        return _text_result({"tasks": summarize_tasks(tasks)})
+        return _text_result({"tasks": summarize_tasks(tasks), "daemon": daemon_status().to_dict()})
 
     def loop_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         task = self.store.request_cancel(args["job_id"])

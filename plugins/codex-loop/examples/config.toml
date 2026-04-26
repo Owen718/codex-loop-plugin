@@ -1,8 +1,10 @@
 [features]
 codex_hooks = true
 
-# For a project-local install, place hooks.json at <repo>/.codex/hooks.json
-# and keep codex-loopd running in another terminal:
+# For a project-local install, place hooks.json at <repo>/.codex/hooks.json.
+# Marketplace installs autostart codex-loopd from the MCP create tool.
+#
+# To manage codex-loopd manually instead:
 #
 #   plugins/codex-loop/scripts/codex-loopd --runner exec
 #
