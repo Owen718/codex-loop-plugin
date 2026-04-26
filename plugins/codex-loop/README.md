@@ -11,7 +11,9 @@ Codex Loop is a plugin-shaped implementation of recurring prompt scheduling for 
 
 ## Quick Start
 
-This workspace includes a repo-local marketplace at `.agents/plugins/marketplace.json` that exposes `./plugins/codex-loop`. Restart Codex, open the plugin directory, and install `Codex Loop` from the `Local Codex Loop` marketplace when you want `$loop` and the MCP tools loaded by Codex.
+This repository includes a marketplace file at `.agents/plugins/marketplace.json` that exposes `./plugins/codex-loop`.
+
+`codex plugin marketplace add ...` registers the marketplace source only. After that, restart Codex and install/enable `Codex Loop` from the plugin directory UI. That is what loads `$loop` and the MCP tools into Codex.
 
 Create a loop task:
 

@@ -66,17 +66,30 @@ plugins/codex-loop/                   Plugin package
 
 ## Installation
 
-### Option 1: Install as a Codex marketplace
+There are two separate steps:
 
-Add this repository as a plugin marketplace:
+1. Add this repository as a **plugin marketplace**. A marketplace is just a catalog that tells Codex where the plugin lives.
+2. Restart Codex, open the plugin directory UI, and install/enable **Codex Loop** from that marketplace. That second step is what actually loads the skill and MCP server into Codex.
+
+### Install from GitHub
+
+Register this repository as a marketplace source:
 
 ```bash
 codex plugin marketplace add Owen718/codex-loop-plugin
 ```
 
-Restart Codex, open the plugin directory, choose `Codex Loop Plugin`, and install `Codex Loop`.
+Then restart Codex. In the plugin directory UI:
 
-### Option 2: Local development install
+```text
+Marketplace/source: Codex Loop Plugin
+Plugin: Codex Loop
+Action: Install or Enable
+```
+
+After that, `$loop` and the `codex_loop` MCP tools are available inside Codex.
+
+### Local development install
 
 Clone the repository:
 
@@ -91,7 +104,33 @@ Add the local marketplace:
 codex plugin marketplace add "$PWD"
 ```
 
-Restart Codex and install `Codex Loop` from the local marketplace.
+Then restart Codex and install/enable `Codex Loop` from the local marketplace.
+
+### CLI-only practice without installing the plugin
+
+If you only want to test the scheduler and state machine first, you can run the bundled CLI directly:
+
+```bash
+git clone git@github.com:Owen718/codex-loop-plugin.git
+cd codex-loop-plugin
+
+plugins/codex-loop/scripts/codex-loop create 1m "check git status and summarize"
+plugins/codex-loop/scripts/codex-loop list
+plugins/codex-loop/scripts/codex-loopd --runner exec
+```
+
+This does not load `$loop` into Codex. It only uses the standalone CLI and daemon.
+
+For a no-token smoke test, use `dry-run`:
+
+```bash
+tmpdb="$(mktemp /tmp/codex-loop.XXXXXX.sqlite3)"
+plugins/codex-loop/scripts/codex-loop --db "$tmpdb" create 1m smoke --thread-id smoke --cwd "$PWD"
+sleep 65
+plugins/codex-loop/scripts/codex-loopd --db "$tmpdb" --runner dry-run --once
+plugins/codex-loop/scripts/codex-loop --db "$tmpdb" list --thread-id smoke
+rm -f "$tmpdb"
+```
 
 ### Optional: enable `/prompts:loop`
 
@@ -110,7 +149,7 @@ Then use:
 
 ## Running the Scheduler
 
-The scheduled tasks only run while `codex-loopd` is running.
+The plugin creates and manages loop tasks, but scheduled tasks only run while `codex-loopd` is running. Keep the daemon open in another terminal.
 
 The simplest runner is `exec`:
 
