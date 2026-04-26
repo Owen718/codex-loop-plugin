@@ -84,6 +84,42 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(status.pid_path, str(pid_path))
         self.assertEqual(status.log_path, str(log_path))
 
+    def test_daemon_status_derives_runtime_paths_from_app_server(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {"CODEX_LOOP_APP_SERVER": "ws://127.0.0.1:4555"},
+            clear=True,
+        ):
+            status = daemon_status()
+
+        self.assertFalse(status.running)
+        self.assertTrue(status.pid_path.endswith(".codex-loop/runtimes/127-0-0-1-4555/loopd.pid"))
+        self.assertTrue(status.log_path.endswith(".codex-loop/runtimes/127-0-0-1-4555/loopd.log"))
+
+    def test_ensure_daemon_running_passes_app_server_token_file_and_extra_env(self) -> None:
+        token_file = self.root / "ws-token"
+        token_file.write_text("token\n")
+        with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
+            with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
+                popen.return_value.pid = 12345
+
+                status = ensure_daemon_running(
+                    db_path=self.db,
+                    pid_path=self.pid_path,
+                    log_path=self.log_path,
+                    runner="app-server",
+                    app_server="ws://127.0.0.1:4555",
+                    app_server_token_env="CODEX_WS_TOKEN",
+                    app_server_token_file=token_file,
+                    extra_env={"CODEX_WS_TOKEN": "token"},
+                )
+
+        args = popen.call_args.args[0]
+        self.assertIn("--app-server-token-file", args)
+        self.assertIn(str(token_file), args)
+        self.assertEqual(popen.call_args.kwargs["env"]["CODEX_WS_TOKEN"], "token")
+        self.assertEqual(status.command, args)
+
 
 if __name__ == "__main__":
     unittest.main()

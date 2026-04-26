@@ -70,6 +70,7 @@ class LoopMcpServer:
                         },
                         "app_server": {"type": "string", "description": "App-server websocket URL for visible loop execution."},
                         "app_server_token_env": {"type": "string", "description": "Environment variable containing app-server token."},
+                        "app_server_token_file": {"type": "string", "description": "File containing the app-server capability token."},
                     },
                     "required": ["raw_user_input"],
                     "additionalProperties": False,
@@ -164,7 +165,7 @@ class LoopMcpServer:
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "codex-loop", "version": "0.1.2"},
+                        "serverInfo": {"name": "codex-loop", "version": "0.1.3"},
                     },
                 }
             if method == "notifications/initialized":
@@ -212,6 +213,7 @@ class LoopMcpServer:
         )
         app_server = args.get("app_server") or os.environ.get("CODEX_LOOP_APP_SERVER")
         app_server_token_env = args.get("app_server_token_env") or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_ENV")
+        app_server_token_file = args.get("app_server_token_file") or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_FILE")
         if task.runner == "app-server" and not app_server:
             daemon = daemon_status()
         else:
@@ -220,6 +222,7 @@ class LoopMcpServer:
                 runner=task.runner,
                 app_server=app_server,
                 app_server_token_env=app_server_token_env,
+                app_server_token_file=app_server_token_file,
             )
         result = {"created": task.to_dict(), "daemon": daemon.to_dict()}
         if task.thread_id == "current":

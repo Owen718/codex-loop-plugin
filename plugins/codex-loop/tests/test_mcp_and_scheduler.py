@@ -52,7 +52,12 @@ class McpAndSchedulerTests(unittest.TestCase):
         self.assertEqual(updated["task"]["status"], "paused")
 
     def test_mcp_create_uses_env_thread_id_and_autostarts_daemon(self) -> None:
-        with mock.patch.dict("os.environ", {"CODEX_THREAD_ID": "thread-real"}, clear=False):
+        token_file = str(Path(self.tmp.name) / "ws-token")
+        with mock.patch.dict(
+            "os.environ",
+            {"CODEX_THREAD_ID": "thread-real", "CODEX_LOOP_APP_SERVER_TOKEN_FILE": token_file},
+            clear=False,
+        ):
             self.ensure_daemon.return_value.to_dict.return_value = {
                 "enabled": True,
                 "running": True,
@@ -71,6 +76,7 @@ class McpAndSchedulerTests(unittest.TestCase):
         self.assertEqual(Path(self.ensure_daemon.call_args.kwargs["db_path"]), self.store.path)
         self.assertEqual(self.ensure_daemon.call_args.kwargs["runner"], "app-server")
         self.assertEqual(self.ensure_daemon.call_args.kwargs["app_server"], "ws://127.0.0.1:4500")
+        self.assertEqual(self.ensure_daemon.call_args.kwargs["app_server_token_file"], token_file)
 
     def test_mcp_create_warns_without_concrete_thread_id(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):

@@ -23,7 +23,7 @@ For Claude Code style visible loop turns, launch Codex through the repository sc
 
 - `codex-loop tui --cwd <repo>`
 
-This starts a local app-server runtime, starts `codex-loopd` against it, and opens `codex --remote` with the `CODEX_LOOP_APP_SERVER` environment needed by `visible_only` loop tasks.
+This starts a local app-server runtime, starts `codex-loopd` against it, and opens `codex --remote` with the `CODEX_LOOP_APP_SERVER`, token file, and runtime DB environment needed by `visible_only` loop tasks.
 
 ## Behavior
 

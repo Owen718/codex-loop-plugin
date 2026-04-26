@@ -82,7 +82,7 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
 ```
 
-The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution.
+The launcher starts a local `codex app-server`, starts `codex-loopd` against that same app-server, then opens `codex --remote` with environment variables that bind new `$loop` tasks to `visible_only` app-server execution. Runtime state is scoped under `~/.codex-loop/runtimes/<host-port>/`, including `loop.sqlite3`, pid files, logs, and the websocket token.
 
 Pass Codex CLI options after `--`:
 
@@ -105,13 +105,15 @@ In another terminal:
 ```bash
 export CODEX_LOOP_APP_SERVER=ws://127.0.0.1:4500
 export CODEX_LOOP_APP_SERVER_TOKEN_ENV=CODEX_WS_TOKEN
+export CODEX_LOOP_APP_SERVER_TOKEN_FILE=~/.codex-loop/ws-token
 export CODEX_LOOP_RUNNER=app-server
 export CODEX_LOOP_VISIBILITY_POLICY=visible_only
+export CODEX_LOOP_DB=~/.codex-loop/runtimes/127-0-0-1-4500/loop.sqlite3
 export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
 codex --remote "$CODEX_LOOP_APP_SERVER" --remote-auth-token-env CODEX_WS_TOKEN
 ```
 
-When `CODEX_LOOP_APP_SERVER` is set, `$loop` autostarts `codex-loopd` with the `app-server` runner. `codex-loop tui` scopes pid/log files under `~/.codex-loop/runtimes/`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable autostart.
+When `CODEX_LOOP_APP_SERVER` is set, `$loop` autostarts `codex-loopd` with the `app-server` runner. `codex-loop tui` scopes DB, pid, log, and token files under `~/.codex-loop/runtimes/`. Set `CODEX_LOOP_AUTOSTART=0` before launching Codex to disable autostart.
 
 `exec` is the simplest and most stable runner. It starts non-interactive Codex turns:
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .models import LoopTask, RunResult
@@ -17,6 +19,7 @@ class AppServerError(RuntimeError):
 class AppServerRunner:
     url: str
     token: str | None = None
+    token_file: str | Path | None = None
     turn_timeout_seconds: int = 60 * 60
     kind: str = "app-server"
 
@@ -29,27 +32,24 @@ class AppServerRunner:
         except Exception as exc:
             raise AppServerError("app-server runner requires the optional 'websockets' Python package") from exc
 
-        headers = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        headers = self.auth_headers()
 
         connect_kwargs: dict[str, Any] = {}
         if headers:
-            connect_kwargs["additional_headers"] = headers
-        try:
-            connection = websockets.connect(self.url, **connect_kwargs)
-        except TypeError:
-            connection = websockets.connect(self.url, extra_headers=headers)
+            header_arg = "additional_headers" if "additional_headers" in inspect.signature(websockets.connect).parameters else "extra_headers"
+            connect_kwargs[header_arg] = headers
+        connection = websockets.connect(self.url, **connect_kwargs)
 
         async with connection as ws:
             rpc = _JsonRpc(ws)
             await rpc.call(
                 "initialize",
                 {
-                    "clientInfo": {"name": "codex-loopd", "version": "0.1.2"},
+                    "clientInfo": {"name": "codex-loopd", "version": "0.1.3"},
                     "capabilities": {"experimentalApi": True},
                 },
             )
+            await rpc.notify("initialized", {})
             if task.thread_id and task.thread_id != "current":
                 resume = await rpc.call(
                     "thread/resume",
@@ -82,7 +82,7 @@ class AppServerRunner:
                 {
                     "threadId": thread_id,
                     "cwd": task.cwd,
-                    "input": [{"type": "text", "text": prompt}],
+                    "input": [{"type": "text", "text": prompt, "text_elements": []}],
                     "approvalPolicy": task.approval_policy_snapshot,
                     "model": task.model_snapshot,
                 },
@@ -92,6 +92,23 @@ class AppServerRunner:
             if status == "completed":
                 return RunResult(status="completed", summary="app-server turn completed", thread_id=thread_id)
             return RunResult(status="failed", summary=f"app-server turn ended with status {status}", thread_id=thread_id)
+
+    def auth_headers(self) -> dict[str, str]:
+        token = self.auth_token()
+        if not token:
+            return {}
+        return {"Authorization": f"Bearer {token}"}
+
+    def auth_token(self) -> str | None:
+        if self.token_file is not None:
+            path = Path(self.token_file).expanduser()
+            try:
+                token = path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError as exc:
+                raise AppServerError(f"app-server token file not found: {path}") from exc
+            if token:
+                return token
+        return self.token
 
 
 class _JsonRpc:
@@ -103,7 +120,7 @@ class _JsonRpc:
     async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         request_id = self.next_id
         self.next_id += 1
-        await self.ws.send(json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}))
+        await self.ws.send(json.dumps({"id": request_id, "method": method, "params": params}))
         while True:
             message = json.loads(await self.ws.recv())
             if message.get("id") == request_id:
@@ -111,6 +128,9 @@ class _JsonRpc:
                     raise AppServerError(f"{method} failed: {message['error']}")
                 return message.get("result") or {}
             self.pending_notifications.append(message)
+
+    async def notify(self, method: str, params: dict[str, Any]) -> None:
+        await self.ws.send(json.dumps({"method": method, "params": params}))
 
     async def wait_for_turn(self, thread_id: str, turn_id: str | None, timeout_seconds: int) -> str:
         deadline = time.monotonic() + timeout_seconds

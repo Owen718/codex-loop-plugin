@@ -189,6 +189,7 @@ def make_runner(args: argparse.Namespace) -> Runner:
         return AppServerRunner(
             url=args.app_server,
             token=os.environ.get(args.app_server_token_env) if args.app_server_token_env else None,
+            token_file=args.app_server_token_file or os.environ.get("CODEX_LOOP_APP_SERVER_TOKEN_FILE"),
             turn_timeout_seconds=args.turn_timeout,
         )
     raise SystemExit(f"unknown runner: {args.runner}")
@@ -266,6 +267,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runner", choices=["app-server", "codex-mcp", "exec", "dry-run"], default="exec")
     parser.add_argument("--app-server", default=None, help="App server websocket URL, e.g. ws://127.0.0.1:4500")
     parser.add_argument("--app-server-token-env", default="CODEX_WS_TOKEN")
+    parser.add_argument("--app-server-token-file", default=None, help="File containing the app-server capability token.")
     parser.add_argument("--codex-bin", default="codex")
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     parser.add_argument("--turn-timeout", type=int, default=60 * 60)

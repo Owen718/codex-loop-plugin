@@ -13,7 +13,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .daemon import ensure_daemon_running, is_pid_running
-from .store import default_db_path
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -24,7 +23,7 @@ DEFAULT_TOKEN_ENV = "CODEX_WS_TOKEN"
 class TuiRuntime:
     app_server_url: str
     runtime_dir: Path
-    token_file: Path
+    token_file: Path | None
     token_env: str
     db_path: Path
     app_server_pid_path: Path
@@ -52,10 +51,17 @@ def build_runtime(args: argparse.Namespace) -> TuiRuntime:
         port = args.port or find_free_port(args.host)
         app_server_url = f"ws://{args.host}:{port}"
 
-    root = Path(args.runtime_dir or Path.home() / ".codex-loop" / "runtimes").expanduser()
+    root = Path(args.runtime_dir or Path.home() / ".codex-loop" / "runtimes").expanduser().resolve()
     runtime_dir = root / _runtime_name(app_server_url)
-    token_file = Path(args.token_file).expanduser() if args.token_file else runtime_dir / "ws-token"
-    db_path = Path(args.db).expanduser() if args.db else default_db_path()
+    if args.token_file:
+        token_file = Path(args.token_file).expanduser().resolve()
+    elif args.app_server and os.environ.get(args.token_env):
+        token_file = None
+    elif args.app_server:
+        token_file = None
+    else:
+        token_file = runtime_dir / "ws-token"
+    db_path = Path(args.db).expanduser().resolve() if args.db else runtime_dir / "loop.sqlite3"
     return TuiRuntime(
         app_server_url=app_server_url,
         runtime_dir=runtime_dir,
@@ -81,9 +87,14 @@ def ensure_token_file(path: Path, *, rotate: bool = False) -> str:
 
 def build_runtime_env(base_env: dict[str, str], runtime: TuiRuntime, token: str) -> dict[str, str]:
     env = base_env.copy()
-    env[runtime.token_env] = token
+    if token:
+        env[runtime.token_env] = token
+    env["CODEX_LOOP_RUNTIME_DIR"] = str(runtime.runtime_dir)
     env["CODEX_LOOP_APP_SERVER"] = runtime.app_server_url
     env["CODEX_LOOP_APP_SERVER_TOKEN_ENV"] = runtime.token_env
+    env.pop("CODEX_LOOP_APP_SERVER_TOKEN_FILE", None)
+    if runtime.token_file is not None:
+        env["CODEX_LOOP_APP_SERVER_TOKEN_FILE"] = str(runtime.token_file)
     env["CODEX_LOOP_RUNNER"] = "app-server"
     env["CODEX_LOOP_VISIBILITY_POLICY"] = "visible_only"
     env["CODEX_LOOP_DB"] = str(runtime.db_path)
@@ -94,6 +105,8 @@ def build_runtime_env(base_env: dict[str, str], runtime: TuiRuntime, token: str)
 
 
 def build_app_server_command(codex_bin: str, runtime: TuiRuntime) -> list[str]:
+    if runtime.token_file is None:
+        raise ValueError("managed app-server startup requires a token file")
     return [
         codex_bin,
         "app-server",
@@ -188,8 +201,12 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
 def launch_tui(args: argparse.Namespace) -> int:
     runtime = build_runtime(args)
     runtime.runtime_dir.mkdir(parents=True, exist_ok=True)
-    if args.app_server and not args.token_file and not args.rotate_token and os.environ.get(runtime.token_env):
-        token = os.environ[runtime.token_env]
+    if runtime.token_file is None:
+        token = os.environ.get(runtime.token_env)
+        if not token:
+            raise SystemExit(
+                f"--app-server requires either --token-file or an existing {runtime.token_env} environment variable"
+            )
     else:
         token = ensure_token_file(runtime.token_file, rotate=args.rotate_token)
     env = build_runtime_env(os.environ, runtime, token)
@@ -222,7 +239,9 @@ def launch_tui(args: argparse.Namespace) -> int:
                 runner="app-server",
                 app_server=runtime.app_server_url,
                 app_server_token_env=runtime.token_env,
+                app_server_token_file=runtime.token_file,
                 codex_bin=args.codex_bin,
+                extra_env=env,
             )
             loopd_pid = status.pid
             loopd_started = status.started

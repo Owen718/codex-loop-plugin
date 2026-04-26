@@ -12,5 +12,7 @@ codex_hooks = true
 #
 #   codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
 #   export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
+#   export CODEX_LOOP_APP_SERVER_TOKEN_FILE=~/.codex-loop/ws-token
+#   export CODEX_LOOP_DB=~/.codex-loop/runtimes/127-0-0-1-4500/loop.sqlite3
 #   codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
-#   plugins/codex-loop/scripts/codex-loopd --runner app-server --app-server ws://127.0.0.1:4500
+#   plugins/codex-loop/scripts/codex-loopd --runner app-server --app-server ws://127.0.0.1:4500 --app-server-token-file "$CODEX_LOOP_APP_SERVER_TOKEN_FILE" --db "$CODEX_LOOP_DB"

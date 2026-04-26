@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 RUNTIME_DIR = Path.home() / ".codex-loop"
@@ -65,12 +66,40 @@ def _read_pid(pid_path: Path) -> int | None:
         return None
 
 
+def _runtime_name(app_server_url: str) -> str | None:
+    parsed = urlparse(app_server_url)
+    if parsed.scheme not in {"ws", "wss"}:
+        return None
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port
+    if port is None:
+        return None
+    return f"{host.replace('.', '-')}-{port}"
+
+
+def _runtime_default_path(filename: str) -> Path | None:
+    runtime_dir = os.environ.get("CODEX_LOOP_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir).expanduser() / filename
+    app_server = os.environ.get("CODEX_LOOP_APP_SERVER")
+    if not app_server:
+        return None
+    runtime_name = _runtime_name(app_server)
+    if not runtime_name:
+        return None
+    return RUNTIME_DIR / "runtimes" / runtime_name / filename
+
+
 def default_pid_path() -> Path:
-    return Path(os.environ.get("CODEX_LOOPD_PID_PATH", DEFAULT_PID_PATH)).expanduser()
+    if os.environ.get("CODEX_LOOPD_PID_PATH"):
+        return Path(os.environ["CODEX_LOOPD_PID_PATH"]).expanduser()
+    return _runtime_default_path("loopd.pid") or DEFAULT_PID_PATH
 
 
 def default_log_path() -> Path:
-    return Path(os.environ.get("CODEX_LOOPD_LOG_PATH", DEFAULT_LOG_PATH)).expanduser()
+    if os.environ.get("CODEX_LOOPD_LOG_PATH"):
+        return Path(os.environ["CODEX_LOOPD_LOG_PATH"]).expanduser()
+    return _runtime_default_path("loopd.log") or DEFAULT_LOG_PATH
 
 
 def daemon_status(*, pid_path: str | Path | None = None, log_path: str | Path | None = None) -> DaemonStatus:
@@ -110,7 +139,9 @@ def ensure_daemon_running(
     runner: str = "codex-mcp",
     app_server: str | None = None,
     app_server_token_env: str | None = None,
+    app_server_token_file: str | Path | None = None,
     codex_bin: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> DaemonStatus:
     resolved_pid_path = Path(pid_path).expanduser() if pid_path is not None else default_pid_path()
     resolved_log_path = Path(log_path).expanduser() if log_path is not None else default_log_path()
@@ -141,7 +172,11 @@ def ensure_daemon_running(
         command.extend(["--app-server", app_server])
     if app_server_token_env:
         command.extend(["--app-server-token-env", app_server_token_env])
+    if app_server_token_file:
+        command.extend(["--app-server-token-file", str(Path(app_server_token_file).expanduser())])
     env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     with resolved_log_path.open("a", encoding="utf-8") as log_file:
         proc = subprocess.Popen(

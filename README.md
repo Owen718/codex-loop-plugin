@@ -103,7 +103,8 @@ What each step means:
 
 - `marketplace add` registers this GitHub repository as a plugin source.
 - Installing/enabling `Codex Loop` loads the `$loop` skill and `codex_loop` MCP tools into Codex.
-- The launcher exports `CODEX_LOOP_APP_SERVER`, `CODEX_LOOP_RUNNER=app-server`, and `CODEX_LOOP_VISIBILITY_POLICY=visible_only` into the new Codex TUI.
+- The launcher exports `CODEX_LOOP_APP_SERVER`, `CODEX_LOOP_APP_SERVER_TOKEN_FILE`, `CODEX_LOOP_RUNNER=app-server`, and `CODEX_LOOP_VISIBILITY_POLICY=visible_only` into the new Codex TUI.
+- The launcher stores each runtime's DB, pid files, logs, and websocket token under `~/.codex-loop/runtimes/<host-port>/`, so new code does not reuse an old global `~/.codex-loop/loop.sqlite3` schema.
 - The MCP create tool starts `codex-loopd` against that app-server and reports daemon status in the tool response.
 - If you create a loop in a normal Codex TUI without this runtime, the default `visible_only` task pauses instead of opening a hidden new session.
 
@@ -130,7 +131,7 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
 ```
 
-The launcher creates a runtime under `~/.codex-loop/runtimes/`, starts a local app-server, starts `codex-loopd --runner app-server`, then opens a remote Codex TUI attached to that runtime.
+The launcher creates a runtime under `~/.codex-loop/runtimes/<host-port>/`, starts a local app-server, starts `codex-loopd --runner app-server`, then opens a remote Codex TUI attached to that runtime.
 
 Pass Codex CLI options after `--`:
 
@@ -138,7 +139,7 @@ Pass Codex CLI options after `--`:
 "$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD" -- --model gpt-5.2
 ```
 
-When `$loop` creates a task through the MCP tool in this launched TUI, it is created as `visibility_policy=visible_only` and `runner=app-server`. The daemon pid and log are written under the launcher runtime directory.
+When `$loop` creates a task through the MCP tool in this launched TUI, it is created as `visibility_policy=visible_only` and `runner=app-server`. The task DB, daemon pid, daemon log, app-server pid, app-server log, and websocket token are written under the launcher runtime directory.
 
 Set `CODEX_LOOP_AUTOSTART=0` before launching Codex if you prefer to manage the daemon yourself.
 
@@ -194,8 +195,10 @@ In another terminal:
 ```bash
 export CODEX_LOOP_APP_SERVER=ws://127.0.0.1:4500
 export CODEX_LOOP_APP_SERVER_TOKEN_ENV=CODEX_WS_TOKEN
+export CODEX_LOOP_APP_SERVER_TOKEN_FILE=~/.codex-loop/ws-token
 export CODEX_LOOP_RUNNER=app-server
 export CODEX_LOOP_VISIBILITY_POLICY=visible_only
+export CODEX_LOOP_DB=~/.codex-loop/runtimes/127-0-0-1-4500/loop.sqlite3
 export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
 codex --remote "$CODEX_LOOP_APP_SERVER" --remote-auth-token-env CODEX_WS_TOKEN
 ```
@@ -207,7 +210,9 @@ LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindept
 "$LOOP_PLUGIN/scripts/codex-loopd" \
   --runner app-server \
   --app-server "$CODEX_LOOP_APP_SERVER" \
-  --app-server-token-env CODEX_WS_TOKEN
+  --app-server-token-env CODEX_WS_TOKEN \
+  --app-server-token-file "$CODEX_LOOP_APP_SERVER_TOKEN_FILE" \
+  --db "$CODEX_LOOP_DB"
 ```
 
 The app-server runner requires Python's optional `websockets` package:

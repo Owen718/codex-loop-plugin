@@ -8,7 +8,7 @@ from unittest import mock
 
 from codex_loop.models import parse_iso, utcnow
 from codex_loop.parser import parse_loop_args
-from codex_loop.store import LoopStore, deterministic_jitter_seconds
+from codex_loop.store import LoopStore, default_db_path, deterministic_jitter_seconds
 
 
 class StoreTests(unittest.TestCase):
@@ -45,6 +45,12 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(task.thread_id, "current")
         self.assertEqual(task.binding_status, "pending")
         self.assertEqual(task.visibility_policy, "visible_only")
+
+    def test_default_db_path_derives_runtime_from_app_server(self) -> None:
+        with mock.patch.dict("os.environ", {"CODEX_LOOP_APP_SERVER": "ws://127.0.0.1:4555"}, clear=True):
+            path = default_db_path()
+
+        self.assertTrue(str(path).endswith(".codex-loop/runtimes/127-0-0-1-4555/loop.sqlite3"))
 
     def test_bind_task_thread_sets_bound_and_resumes_paused(self) -> None:
         task = self.store.create_task(parse_loop_args("5m check deploy"), cwd=self.tmp.name)

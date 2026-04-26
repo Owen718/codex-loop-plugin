@@ -8,6 +8,7 @@ import sqlite3
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 from .models import CompletionStatus, LoopRun, LoopTask, ParsedLoop, iso, utcnow
 
@@ -23,7 +24,17 @@ MAX_TASKS_PER_THREAD = 50
 
 
 def default_db_path() -> Path:
-    return Path(os.environ.get("CODEX_LOOP_DB", DEFAULT_DB_PATH)).expanduser()
+    if os.environ.get("CODEX_LOOP_DB"):
+        return Path(os.environ["CODEX_LOOP_DB"]).expanduser()
+    if os.environ.get("CODEX_LOOP_RUNTIME_DIR"):
+        return Path(os.environ["CODEX_LOOP_RUNTIME_DIR"]).expanduser() / "loop.sqlite3"
+    app_server = os.environ.get("CODEX_LOOP_APP_SERVER")
+    if app_server:
+        parsed = urlparse(app_server)
+        if parsed.scheme in {"ws", "wss"} and parsed.port is not None:
+            host = parsed.hostname or "127.0.0.1"
+            return DEFAULT_DB_PATH.parent / "runtimes" / f"{host.replace('.', '-')}-{parsed.port}" / "loop.sqlite3"
+    return DEFAULT_DB_PATH
 
 
 def default_visibility_policy() -> str:
