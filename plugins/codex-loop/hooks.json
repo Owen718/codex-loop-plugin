@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/stop_loop_fallback.py",
+            "timeout": 30,
+            "statusMessage": "Checking Codex Loop tasks"
+          }
+        ]
+      }
+    ]
+  }
+}

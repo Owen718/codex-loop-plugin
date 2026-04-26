@@ -1,0 +1,37 @@
+{
+  "name": "codex-loop",
+  "version": "0.1.0",
+  "description": "Claude Code style recurring loop scheduling for Codex threads.",
+  "author": {
+    "name": "Codex Loop Contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "loop",
+    "scheduler",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex Loop",
+    "shortDescription": "Recurring prompt scheduler for Codex threads.",
+    "longDescription": "Adds /prompts:loop and $loop workflows, MCP task management, SQLite state, a loopd daemon, and a Stop hook fallback for recurring Codex maintenance tasks.",
+    "developerName": "Codex Loop Contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "MCP",
+      "Hooks"
+    ],
+    "defaultPrompt": [
+      "$loop 5m check deploy status",
+      "$loop list",
+      "$loop cancel <job_id>"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

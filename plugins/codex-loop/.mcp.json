@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "codex_loop": {
+      "command": "python3",
+      "args": [
+        "./scripts/codex-loop-mcp"
+      ],
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 60,
+      "enabled": true,
+      "enabled_tools": [
+        "loop_create",
+        "loop_list",
+        "loop_delete",
+        "loop_update",
+        "loop_complete_iteration",
+        "loop_read_default_prompt"
+      ]
+    }
+  }
+}

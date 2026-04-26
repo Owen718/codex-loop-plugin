@@ -1,0 +1,14 @@
+[features]
+codex_hooks = true
+
+# For a project-local install, place hooks.json at <repo>/.codex/hooks.json
+# and keep codex-loopd running in another terminal:
+#
+#   plugins/codex-loop/scripts/codex-loopd --runner exec
+#
+# The app-server runner is closer to interactive /loop semantics:
+#
+#   codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file ~/.codex-loop/ws-token
+#   export CODEX_WS_TOKEN="$(cat ~/.codex-loop/ws-token)"
+#   codex --remote ws://127.0.0.1:4500 --remote-auth-token-env CODEX_WS_TOKEN
+#   plugins/codex-loop/scripts/codex-loopd --runner app-server --app-server ws://127.0.0.1:4500
