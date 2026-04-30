@@ -135,10 +135,20 @@ The app-server runner needs Python's optional `websockets` package.
 
 ## Usage Notes
 
-- The recommended startup command is `codex-loop tui --cwd "$PWD"`.
+- The recommended startup command is:
+
+  ```bash
+  LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+  "$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+  ```
+
 - Create `$loop` tasks inside the TUI opened by that launcher.
 - The minimum fixed interval is 60 seconds; `20s` and `30s` normalize to `60s`.
 - In a normal Codex TUI without `CODEX_LOOP_APP_SERVER`, default `visible_only` tasks pause instead of opening hidden sessions.
+- If you reuse an existing app-server, pass both `--app-server ws://127.0.0.1:<port>` and `--token-file <ws-token-file>`.
+- Restart Codex after installing, updating, or editing the plugin so the MCP server reloads `.mcp.json` and the newest cached plugin version.
+- `HTTP 401` from a loop run means the app-server token did not reach `codex-loopd`; check the runtime `ws-token` and `CODEX_LOOP_APP_SERVER_TOKEN_FILE`.
+- If `$loop list` reports a running daemon but tasks do not move, check the reported daemon pid and `~/.codex-loop/loopd.log`.
 
 ## Default Prompt
 

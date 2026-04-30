@@ -109,6 +109,23 @@ What each step means:
 - The MCP create tool starts `codex-loopd` against that app-server and reports daemon status in the tool response.
 - If you create a loop in a normal Codex TUI without this runtime, the default `visible_only` task pauses instead of opening a hidden new session.
 
+### Startup Checklist
+
+For visible loops that should return to the current Codex session, prefer this launcher every time:
+
+```bash
+LOOP_PLUGIN="$(find ~/.codex/plugins/cache/codex-loop-plugin/codex-loop -mindepth 1 -maxdepth 1 -type d | sort | tail -1)"
+"$LOOP_PLUGIN/scripts/codex-loop" tui --cwd "$PWD"
+```
+
+Operational notes:
+
+- Do not rely on plain `codex` for visible `$loop` tasks unless you manually configured `CODEX_LOOP_APP_SERVER` and the websocket token. Without that runtime, default `visible_only` tasks pause instead of opening hidden sessions.
+- If you reuse an existing app-server, provide both the websocket URL and token file, for example `codex-loop tui --app-server ws://127.0.0.1:<port> --token-file <ws-token-file>`.
+- Restart Codex after installing, updating, or editing the plugin so the MCP server reloads `.mcp.json` and the newest cached plugin version.
+- `HTTP 401` from a loop run means the app-server token did not reach the daemon; check `CODEX_LOOP_APP_SERVER_TOKEN_FILE` or the runtime `ws-token`.
+- If `$loop list` says the daemon is running but tasks do not move, check the reported daemon pid and `~/.codex-loop/loopd.log`.
+
 ## Installation Details
 
 ### 1. Add The Marketplace
