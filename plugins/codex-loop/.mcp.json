@@ -4,7 +4,7 @@
       "command": "python3",
       "args": [
         "-c",
-        "import pathlib, runpy, sys; root = pathlib.Path.home() / '.codex' / 'plugins' / 'cache' / 'codex-loop-plugin' / 'codex-loop'; versions = [p for p in root.iterdir() if p.is_dir()]; script = max(versions, key=lambda p: p.stat().st_mtime) / 'scripts' / 'codex-loop-mcp'; sys.path.insert(0, str(script.parent)); runpy.run_path(str(script), run_name='__main__')"
+        "import json, pathlib, re, runpy, sys; root = pathlib.Path.home() / '.codex' / 'plugins' / 'cache' / 'codex-loop-plugin' / 'codex-loop';\n\ndef _key(p):\n    script = p / 'scripts' / 'codex-loop-mcp'\n    if not script.is_file():\n        return None\n    version = p.name\n    manifest = p / '.codex-plugin' / 'plugin.json'\n    try:\n        version = json.loads(manifest.read_text(encoding='utf-8')).get('version') or version\n    except Exception:\n        pass\n    return (tuple(int(part) for part in re.findall(r'\\d+', version)), p.stat().st_mtime)\n\ncandidates = [(key, p) for p in root.iterdir() if p.is_dir() for key in [_key(p)] if key is not None]\nif not candidates:\n    raise SystemExit(f'no usable codex-loop-mcp under {root}')\nscript = max(candidates, key=lambda item: item[0])[1] / 'scripts' / 'codex-loop-mcp'\nsys.path.insert(0, str(script.parent))\nrunpy.run_path(str(script), run_name='__main__')"
       ],
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 60,

@@ -30,6 +30,27 @@ class RuntimeStateTests(unittest.TestCase):
 
             self.assertFalse(state_path.exists())
 
+    def test_apply_active_runtime_overwrites_stale_loop_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "active-runtime.json"
+            runtime_dir = Path(tmp) / "runtime"
+            target_env = {
+                "CODEX_LOOP_DB": "/old/runtime/loop.sqlite3",
+                "CODEX_LOOP_APP_SERVER": "ws://127.0.0.1:1111",
+            }
+            source_env = {
+                "CODEX_LOOP_RUNTIME_DIR": str(runtime_dir),
+                "CODEX_LOOP_DB": str(runtime_dir / "loop.sqlite3"),
+                "CODEX_LOOP_APP_SERVER": "ws://127.0.0.1:4555",
+            }
+
+            with mock.patch.dict("os.environ", {"CODEX_LOOP_ACTIVE_RUNTIME": str(state_path)}, clear=True):
+                write_active_runtime(source_env)
+                apply_active_runtime_to_env(target_env)
+
+            self.assertEqual(target_env["CODEX_LOOP_DB"], source_env["CODEX_LOOP_DB"])
+            self.assertEqual(target_env["CODEX_LOOP_APP_SERVER"], source_env["CODEX_LOOP_APP_SERVER"])
+
 
 if __name__ == "__main__":
     unittest.main()

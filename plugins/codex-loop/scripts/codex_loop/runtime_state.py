@@ -58,7 +58,7 @@ def read_active_runtime() -> dict[str, str]:
 def apply_active_runtime_to_env(env: dict[str, str] = os.environ) -> dict[str, str]:
     state = read_active_runtime()
     for key, value in state.items():
-        env.setdefault(key, value)
+        env[key] = value
     return state
 
 

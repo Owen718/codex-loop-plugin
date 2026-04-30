@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from .runtime_state import active_runtime_value
 RUNTIME_DIR = Path.home() / ".codex-loop"
 DEFAULT_PID_PATH = RUNTIME_DIR / "loopd.pid"
 DEFAULT_LOG_PATH = RUNTIME_DIR / "loopd.log"
+STARTUP_GRACE_SECONDS = 0.05
 
 
 @dataclass
@@ -54,7 +56,21 @@ def is_pid_running(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+    if _linux_proc_state(pid) == "Z":
+        return False
     return True
+
+
+def _linux_proc_state(pid: int) -> str | None:
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return None
+    end = raw.rfind(")")
+    if end == -1:
+        return None
+    fields = raw[end + 1 :].strip().split()
+    return fields[0] if fields else None
 
 
 def _read_pid(pid_path: Path) -> int | None:
@@ -79,11 +95,11 @@ def _runtime_name(app_server_url: str) -> str | None:
     return f"{host.replace('.', '-')}-{port}"
 
 
-def _runtime_default_path(filename: str) -> Path | None:
+def _runtime_default_path(filename: str, *, app_server: str | None = None) -> Path | None:
     runtime_dir = active_runtime_value("CODEX_LOOP_RUNTIME_DIR")
     if runtime_dir:
         return Path(runtime_dir).expanduser() / filename
-    app_server = active_runtime_value("CODEX_LOOP_APP_SERVER")
+    app_server = app_server or active_runtime_value("CODEX_LOOP_APP_SERVER")
     if not app_server:
         return None
     runtime_name = _runtime_name(app_server)
@@ -174,6 +190,10 @@ def ensure_daemon_running(
         command.extend(["--app-server", app_server])
     if app_server_token_env:
         command.extend(["--app-server-token-env", app_server_token_env])
+    if runner == "app-server" and app_server_token_file is None:
+        fallback_token_file = _runtime_default_path("ws-token", app_server=app_server)
+        if fallback_token_file is not None and fallback_token_file.is_file():
+            app_server_token_file = fallback_token_file
     if app_server_token_file:
         command.extend(["--app-server-token-file", str(Path(app_server_token_file).expanduser())])
     env = os.environ.copy()
@@ -189,6 +209,19 @@ def ensure_daemon_running(
             start_new_session=True,
             close_fds=True,
             env=env,
+        )
+    time.sleep(STARTUP_GRACE_SECONDS)
+    returncode = proc.poll()
+    if returncode is not None:
+        return DaemonStatus(
+            enabled=True,
+            running=False,
+            started=True,
+            pid=proc.pid,
+            reason=f"daemon exited immediately with code {returncode}",
+            pid_path=str(resolved_pid_path),
+            log_path=str(resolved_log_path),
+            command=command,
         )
     resolved_pid_path.write_text(f"{proc.pid}\n")
     return DaemonStatus(

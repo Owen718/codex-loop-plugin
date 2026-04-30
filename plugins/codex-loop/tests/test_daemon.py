@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from codex_loop.daemon import daemon_status, ensure_daemon_running
+from codex_loop.daemon import daemon_status, ensure_daemon_running, is_pid_running
 
 
 class DaemonTests(unittest.TestCase):
@@ -23,14 +23,16 @@ class DaemonTests(unittest.TestCase):
         with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
             with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
                 popen.return_value.pid = 12345
+                popen.return_value.poll.return_value = None
 
-                status = ensure_daemon_running(
-                    db_path=self.db,
-                    pid_path=self.pid_path,
-                    log_path=self.log_path,
-                    runner="codex-mcp",
-                    codex_bin="codex-test",
-                )
+                with mock.patch("codex_loop.daemon.time.sleep"):
+                    status = ensure_daemon_running(
+                        db_path=self.db,
+                        pid_path=self.pid_path,
+                        log_path=self.log_path,
+                        runner="codex-mcp",
+                        codex_bin="codex-test",
+                    )
 
         self.assertTrue(status.enabled)
         self.assertTrue(status.running)
@@ -70,6 +72,13 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(status.pid, 6789)
         self.assertIn("stale", status.reason)
 
+    def test_is_pid_running_treats_linux_zombie_as_stale(self) -> None:
+        with mock.patch("codex_loop.daemon.os.kill") as kill:
+            with mock.patch("codex_loop.daemon._linux_proc_state", return_value="Z"):
+                self.assertFalse(is_pid_running(6789))
+
+        kill.assert_called_once_with(6789, 0)
+
     def test_daemon_status_uses_env_pid_and_log_paths(self) -> None:
         pid_path = self.root / "env-loopd.pid"
         log_path = self.root / "env-loopd.log"
@@ -102,23 +111,97 @@ class DaemonTests(unittest.TestCase):
         with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
             with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
                 popen.return_value.pid = 12345
+                popen.return_value.poll.return_value = None
 
-                status = ensure_daemon_running(
-                    db_path=self.db,
-                    pid_path=self.pid_path,
-                    log_path=self.log_path,
-                    runner="app-server",
-                    app_server="ws://127.0.0.1:4555",
-                    app_server_token_env="CODEX_WS_TOKEN",
-                    app_server_token_file=token_file,
-                    extra_env={"CODEX_WS_TOKEN": "token"},
-                )
+                with mock.patch("codex_loop.daemon.time.sleep"):
+                    status = ensure_daemon_running(
+                        db_path=self.db,
+                        pid_path=self.pid_path,
+                        log_path=self.log_path,
+                        runner="app-server",
+                        app_server="ws://127.0.0.1:4555",
+                        app_server_token_env="CODEX_WS_TOKEN",
+                        app_server_token_file=token_file,
+                        extra_env={"CODEX_WS_TOKEN": "token"},
+                    )
 
         args = popen.call_args.args[0]
         self.assertIn("--app-server-token-file", args)
         self.assertIn(str(token_file), args)
         self.assertEqual(popen.call_args.kwargs["env"]["CODEX_WS_TOKEN"], "token")
         self.assertEqual(status.command, args)
+
+    def test_ensure_daemon_running_uses_runtime_token_file_fallback(self) -> None:
+        runtime_dir = self.root / "runtime"
+        token_file = runtime_dir / "ws-token"
+        token_file.parent.mkdir()
+        token_file.write_text("token\n")
+        with mock.patch.dict("os.environ", {"CODEX_LOOP_RUNTIME_DIR": str(runtime_dir)}, clear=False):
+            with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
+                with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
+                    popen.return_value.pid = 12345
+                    popen.return_value.poll.return_value = None
+
+                    with mock.patch("codex_loop.daemon.time.sleep"):
+                        status = ensure_daemon_running(
+                            db_path=self.db,
+                            pid_path=self.pid_path,
+                            log_path=self.log_path,
+                            runner="app-server",
+                            app_server="ws://127.0.0.1:4555",
+                            app_server_token_env="CODEX_WS_TOKEN",
+                        )
+
+        args = popen.call_args.args[0]
+        self.assertIn("--app-server-token-file", args)
+        self.assertIn(str(token_file), args)
+        self.assertTrue(status.running)
+
+    def test_ensure_daemon_running_derives_token_file_from_app_server_arg(self) -> None:
+        runtime_root = self.root / "runtimes"
+        token_file = runtime_root / "127-0-0-1-4555" / "ws-token"
+        token_file.parent.mkdir(parents=True)
+        token_file.write_text("token\n")
+        with mock.patch("codex_loop.daemon.RUNTIME_DIR", self.root):
+            with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
+                with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
+                    popen.return_value.pid = 12345
+                    popen.return_value.poll.return_value = None
+
+                    with mock.patch("codex_loop.daemon.time.sleep"):
+                        status = ensure_daemon_running(
+                            db_path=self.db,
+                            pid_path=self.pid_path,
+                            log_path=self.log_path,
+                            runner="app-server",
+                            app_server="ws://127.0.0.1:4555",
+                            app_server_token_env="CODEX_WS_TOKEN",
+                        )
+
+        args = popen.call_args.args[0]
+        self.assertIn("--app-server-token-file", args)
+        self.assertIn(str(token_file), args)
+        self.assertTrue(status.running)
+
+    def test_ensure_daemon_running_reports_immediate_exit_without_pid_file(self) -> None:
+        with mock.patch("codex_loop.daemon.is_pid_running", return_value=False):
+            with mock.patch("codex_loop.daemon.subprocess.Popen") as popen:
+                popen.return_value.pid = 12345
+                popen.return_value.poll.return_value = 2
+
+                with mock.patch("codex_loop.daemon.time.sleep"):
+                    status = ensure_daemon_running(
+                        db_path=self.db,
+                        pid_path=self.pid_path,
+                        log_path=self.log_path,
+                        runner="codex-mcp",
+                    )
+
+        self.assertFalse(status.running)
+        self.assertTrue(status.started)
+        self.assertEqual(status.pid, 12345)
+        self.assertIn("exited immediately", status.reason)
+        self.assertFalse(self.pid_path.exists())
 
 
 if __name__ == "__main__":
